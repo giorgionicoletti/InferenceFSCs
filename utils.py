@@ -43,7 +43,7 @@ def one_traj_loss(theta, f_traj, a_traj, m, T):
     m_update = 0.
     loss_trj = torch.tensor(0.0, requires_grad = True)
     for f, a in zip(f_traj[:T], a_traj[:T-1]):
-        m_update += m.detach().numpy()
+        m_update += m.detach()#.numpy()
         m = torch.matmul(Tmm(theta, f, a).T, m)
         mv = torch.sum(m)
         loss_trj = loss_trj - torch.log(mv)
@@ -133,7 +133,7 @@ def get_traj_from_theta(F,M,A,signal,random_theta,Ntraj,traj_len):
         if M==1:
             m=0
         else:
-            m=np.random.choice(M,p=[0.5,0.5])
+            m=np.random.choice(M,p=[0.3,0.7])
         all_m=[m]
         y_traj=signal[i]['observations']
         f_traj = np.column_stack((np.ones(y_traj.shape[0]),y_traj))
