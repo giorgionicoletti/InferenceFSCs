@@ -24,8 +24,8 @@ class FSC_DiscreteObs():
         self.psi = psi
 
         self.M = psi.size
-        self.A = theta.shape[0]
-        self.Y = theta.shape[3]
+        self.A = theta.shape[3]
+        self.Y = theta.shape[0]
 
         if verbose:
             print(f"Initializing FSC with {self.M} memory states, {self.A} actions, and {self.Y} observations.")
