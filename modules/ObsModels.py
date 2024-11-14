@@ -27,13 +27,13 @@ def ContinuousDichotomousObservations(NSteps, w0, w1, dt):
     return dich
 
 @nb.njit
-def DiscreteMarkovChain(Nsteps, RateMatrix, initial_state = None, seed = None):
+def SingleDiscreteMarkovChain(NSteps, RateMatrix, initial_state = None, seed = None):
     if seed is not None:
         np.random.seed(seed)
     NStates = RateMatrix.shape[0]
     StateSpace = np.arange(NStates)
 
-    states = np.zeros(Nsteps, dtype = np.int32)
+    states = np.zeros(NSteps, dtype = np.int32)
     if initial_state is None:
         states[0] = np.random.choice(NStates)
     else:
@@ -44,9 +44,17 @@ def DiscreteMarkovChain(Nsteps, RateMatrix, initial_state = None, seed = None):
     for idx in range(NStates):
         TransitionProbabilities[idx] = RateMatrix[idx] / RateMatrix[idx].sum()
     
-    for idx in range(1, Nsteps):
+    for idx in range(1, NSteps):
         states[idx] = fun.numba_random_choice(StateSpace, TransitionProbabilities[states[idx-1]])
 
     return states
 
+@nb.njit
+def DiscreteMarkovChain(NTraj, NSteps, RateMatrix, initial_state = None, initial_seed = None):    
+    states = np.zeros((NTraj, NSteps), dtype = np.int32)
+    
+    for idx in nb.prange(NTraj):
+        states[idx] = SingleDiscreteMarkovChain(NSteps, RateMatrix, initial_state, seed = initial_seed + idx)
+    
+    return states
     

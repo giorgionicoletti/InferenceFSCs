@@ -1,6 +1,8 @@
 import numpy as np
 import numba as nb
 
+import torch
+
 def softmax(x, axis = 0):
     """
     Computes the softmax of an array x along a given axis.
@@ -18,6 +20,26 @@ def softmax(x, axis = 0):
     max_x = np.max(x, axis = axis, keepdims = True)
     exp_x = np.exp(x - max_x)
     sum_exp_x = np.sum(exp_x, axis = axis, keepdims = True)
+    return exp_x / sum_exp_x
+
+def torch_softmax_2dim(x, dims):
+    """
+    Computes the softmax of a tensor x along a given axis.
+
+    Parameters:
+    --- x: torch.Tensor
+        Tensor to be softmaxed.
+    --- dims: tuple
+        Dimensions along which the softmax is computed.
+
+    Returns:
+    --- torch.Tensor
+        Softmaxed tensor, of the same shape as x.
+    """
+    max_x = torch.max(x, dim = dims[0], keepdim = True)[0]
+    max_x = torch.max(max_x, dim = dims[1], keepdim = True)[0]
+    exp_x = torch.exp(x - max_x)
+    sum_exp_x = torch.sum(exp_x, dim = dims, keepdim = True)
     return exp_x / sum_exp_x
 
 @nb.njit
