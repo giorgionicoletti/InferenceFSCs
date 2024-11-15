@@ -5,6 +5,7 @@ import torch
 from torch import nn
 import random
 
+import matplotlib.pyplot as plt
 
 
 class GenerationDiscreteObs():
@@ -12,6 +13,16 @@ class GenerationDiscreteObs():
     def __init__(self, theta, psi, verbose = False,
                  ObsSpace = None, ActSpace = None, MemSpace = None):
         """
+        Creates an instance of a Finite State Controller (FSC) for discrete observations. The parameters
+        theta and psi are used to define the transition probabilities and the initial memory occupation,
+        respectively. In particular, the initial memory occupation is computed as rho = softmax(psi),
+        and the transition probability is computed as T = softmax(theta, axis = (2, 3)), so that
+        it is the conditional probability of taking an action and transitioning to a new memory state
+        given the current memory state and the observation.
+
+        This class is only able to generate trajectories and evaluate the negative log-likelihood of a
+        given trajectory. For training, use the InferenceDiscreteObs class for the moment.
+
         Parameters:
         --- theta: np.array of shape (Y, M, M, A)
             Parameters for the FSC transition probability.
@@ -20,11 +31,14 @@ class GenerationDiscreteObs():
             number of (final) memory states, and the last dimension is the number of actions.
         --- psi: np.array of shape (M)
             Parameters for the initial memory occupation.
-
-        By initializing the FSC, the initial memory occupation is computed as rho = softmax(psi),
-        and the transition probability is computed as T = softmax(theta, axis = (2, 3)), so that
-        it is the conditional probability of taking an action and transitioning to a new memory state
-        given the current memory state and the observation.
+        --- verbose: bool (default = False)
+            If True, prints information about the FSC initialization.
+        --- ObsSpace: list (default = None)
+            List of observations. If None, the observations are assumed to be integers from 0 to Y-1.
+        --- ActSpace: list (default = None)
+            List of actions. If None, the actions are assumed to be integers from 0 to A-1.
+        --- MemSpace: list (default = None)
+            List of memory states. If None, the memory states are assumed to be integers from 0 to M-1.
         """
         self.theta = theta
         self.psi = psi
@@ -72,8 +86,9 @@ class GenerationDiscreteObs():
         Loads a sequence of observations to be used to generate a trajectory.
 
         Parameters:
-        --- observations: np.array of shape (NSteps)
-            Sequence of observations to be used to generate a trajectory.
+        --- observations: list of np.arrays
+            List of observation sequences. Each element of the list is an np.array of possibly different lengths,
+            containing the observations for a single trajectory.
         """
 
         assert np.all(observations < self.Y)
@@ -85,6 +100,27 @@ class GenerationDiscreteObs():
         self.max_obs_length = np.max(self.observations_lengths)
 
     def generate_single_trajectory(self, NSteps, observations = None, idx_observation = None):
+        """
+        Generates a single trajectory of NSteps length given a sequence of observations. If no observations are provided,
+        the method uses the loaded observations and generates a trajectory for the indexed observation sequence.
+
+        In any case, the number of steps NSteps must be smaller or equal than the number of observations in the provided
+        observation sequence.
+
+        Note that the trajectory is not stored in the object, but returned as a dictionary.
+
+        Parameters:
+        --- NSteps: int
+            Number of steps for the trajectory.
+        --- observations: np.array (default = None)
+            Array of observations. If None, the method uses the loaded observations.
+        --- idx_observation: int (default = None)
+            Index of the observation sequence to use if no observations are provided.
+
+        Returns:
+        --- trajectory: dict
+            Dictionary containing the actions, memories, and observations for the generated trajectory.
+        """
         if observations is None:
             assert hasattr(self, "observations"), "No observations have been loaded. Load observations with the load_observations method."
             assert idx_observation is not None, "If no observations are provided, the idx_observation parameter must not be None."
@@ -105,6 +141,32 @@ class GenerationDiscreteObs():
     
     def generate_trajectories(self, NSteps, observations = None, idx_observation = None, NTraj = None,
                               verbose = False):
+        """
+        Generates NTraj trajectories of NSteps length given a sequence of observations. If no observations are provided,
+        the method uses the loaded observations. It is also possible to generate NTraj trajectories for the same observation
+        sequence by providing the idx_observation parameter and setting the NTraj parameter.
+
+        In any case, the number of steps NSteps must be smaller or equal than the number of observations in the provided
+        observation sequence.
+
+        Note that the trajectories are not stored in the object, but returned as a list of dictionaries.
+
+        Parameters:
+        --- NSteps: int
+            Number of steps for the trajectory.
+        --- observations: list of np.arrays (default = None)
+            List of observation sequences. If None, the method uses the loaded observations.
+        --- idx_observation: int (default = None)
+            Index of the observation sequence to use if no observations are provided.
+        --- NTraj: int (default = None)
+            Number of trajectories to generate. If None, the method generates one trajectory per observation sequence.
+        --- verbose: bool (default = False)
+            If True, prints information about the generation process.
+
+        Returns:
+        --- trajectories: list of dicts
+            List of dictionaries containing the actions, memories, and observations for each generated trajectory.
+        """
         if observations is None:
             if idx_observation is None:
                 if verbose:
@@ -163,6 +225,17 @@ class GenerationDiscreteObs():
         return trajectories
     
     def evaluate_nloglikelihood(self, trajectory):
+        """
+        Evaluates the negative log-likelihood of a given trajectory.
+
+        Parameters:
+        --- trajectory: dict
+            Dictionary containing the actions, memories, and observations for the trajectory.
+
+        Returns:
+        --- nLL: float
+            Negative log-likelihood of the trajectory.
+        """
 
         actions = trajectory["actions"]
         observations = trajectory["observations"]
@@ -174,22 +247,142 @@ class GenerationDiscreteObs():
         return nLL
         
     def get_obs_idx(self, obs):
+        """
+        Helper method to get the index of an observation in the observation space.
+
+        Parameters:
+        --- obs: int
+            Observation to get the index of.
+
+        Returns:
+        --- idx: int
+            Index of the observation in the observation space.
+        """
         assert obs in self.ObsSpace, f"Observation {obs} is not in the observation space."
         return np.where(self.ObsSpace == obs)[0][0]
     
     def get_act_idx(self, act):
+        """
+        Helper method to get the index of an action in the action space.
+
+        Parameters:
+        --- act: int
+            Action to get the index of.
+
+        Returns:
+        --- idx: int
+            Index of the action in the action space.
+        """
         assert act in self.ActSpace, f"Action {act} is not in the action space."
         return np.where(self.ActSpace == act)[0][0]
     
     def get_mem_idx(self, mem):
+        """
+        Helper method to get the index of a memory state in the memory space.
+
+        Parameters:
+        --- mem: int
+            Memory state to get the index of.
+
+        Returns:
+        --- idx: int
+            Index of the memory state in the memory space
+        """
         assert mem in self.MemSpace, f"Memory state {mem} is not in the memory space."
         return np.where(self.MemSpace == mem)[0][0]
+
+    def plot_trajectory(self, trj, Time):
+        """
+        Plots the actions, memories, and observations of a given trajectory.
+
+        Parameters:
+        --- trj: dict
+            Dictionary containing the actions, memories, and observations for the trajectory.
+        --- Time: np.array
+            Array of time steps for the trajectory.
+
+        Returns:
+        --- fig: plt.figure
+            Figure object containing the plots.
+        --- ax: np.array of plt.axes
+            Array of axes objects containing the plots.
+        """
+        fig, ax = plt.subplots(3,1, figsize=(10,5))
+        plt.subplots_adjust(hspace=0.5)
+
+        ax[0].plot(Time, trj["observations"], 'o', c= 'k')
+        ax[0].plot(Time, trj["observations"], c = 'k')
+        ax[0].set_xlabel('Time')
+        ax[0].set_ylabel('Observations')
+
+        ax[1].plot(Time, trj["memories"], 'o', c= 'k')
+        ax[1].plot(Time, trj["memories"], c = 'k')
+        ax[1].set_xlabel('Time')
+        ax[1].set_ylabel('Memories')
+
+        ax[2].plot(Time, trj["actions"], 'o', c= 'k')
+        ax[2].plot(Time, trj["actions"], c = 'k')
+        ax[2].set_xlabel('Time')
+        ax[2].set_ylabel('Actions')
+
+        return fig, ax
+    
+    def load_theta(self, theta):
+        """
+        Loads a new set of parameters for the transition probabilities of the FSC.
+
+        Parameters:
+        --- theta: np.array of shape (Y, M, M, A)
+            New parameters for the transition probabilities.
+        """
+        self.theta = theta
+        self.TMat = fun.softmax(theta, axis = (2, 3))
+        self.policy = np.sum(self.TMat, axis = 2)
+
+    def load_psi(self, psi):
+        """
+        Loads a new set of parameters for the initial memory occupation of the FSC.
+
+        Parameters:
+        --- psi: np.array of shape (M)
+            New parameters for the initial memory occupation.
+        """
+        self.psi = psi
+        self.rho = fun.softmax(psi)
     
 
     @staticmethod
     @nb.njit
     def _nb_evaluate_nloglikelihood(observations, actions, TMat, rho, ActSpace, MemSpace,
                                     loaded_act_space = False, loaded_obs_space = False):
+            """
+            Static method providing a numba-compiled implementation of the negative log-likelihood evaluation
+            for a given trajectory. The method is then wrapped in the evaluate_nloglikelihood method.
+
+            Parameters:
+            --- observations: np.array
+                Array of observations.
+            --- actions: np.array
+                Array of actions.
+            --- TMat: np.array of shape (Y, M, M, A)
+                Transition probability matrix.
+            --- rho: np.array of shape (M)
+                Initial memory occupation.
+            --- ActSpace: np.array
+                Array of actions.
+            --- MemSpace: np.array
+                Array of memory states.
+            --- loaded_act_space: bool (default = False)
+                Flag indicating whether the action space is custom or not.
+                If not, the actions are assumed to be integers from 0 to A-1.
+            --- loaded_obs_space: bool (default = False)
+                Flag indicating whether the observation space is custom or not.
+                If not, the observations are assumed to be integers from 0 to Y-1.
+
+            Returns:
+            --- nLL: float
+                Negative log-likelihood of the trajectory.
+            """
             nLL = 0.
     
             for t, obs in enumerate(observations):
@@ -220,7 +413,30 @@ class GenerationDiscreteObs():
     @staticmethod
     @nb.njit
     def _nb_generate_trajectory(NSteps, MSpace, MASpace, TMat, rho, observations):
+        """
+        Static method providing a numba-compiled implementation of the trajectory generation
+        for a given observation sequence. The method is then wrapped in the generate_single_trajectory method.
 
+        Parameters:
+        --- NSteps: int
+            Number of steps for the trajectory.
+        --- MSpace: np.array
+            Array of memory states.
+        --- MASpace: np.array
+            Array of memory-action pairs.
+        --- TMat: np.array of shape (Y, M, M, A)
+            Transition probability matrix.
+        --- rho: np.array of shape (M)
+            Initial memory occupation.
+        --- observations: np.array
+            Array of observations.
+
+        Returns:
+        --- actions: np.array
+            Array of actions.
+        --- memories: np.array
+            Array of memory states.
+        """
         actions = np.zeros(NSteps, dtype = np.int32)
         memories = np.zeros(NSteps, dtype = np.int32)
 
@@ -239,7 +455,33 @@ class GenerationDiscreteObs():
     @staticmethod
     @nb.njit
     def _nb_generate_trajectories_parallel(NTraj, NSteps, MSpace, MASpace, TMat, rho, observations):
-            
+            """
+            Static method providing a numba-compiled implementation of the trajectory generation
+            for a given observation sequence. The method is then wrapped in the generate_trajectories method,
+            and it generates NTraj trajectories in parallel.
+
+            Parameters:
+            --- NTraj: int
+                Number of trajectories to generate.
+            --- NSteps: int
+                Number of steps for the trajectory.
+            --- MSpace: np.array
+                Array of memory states.
+            --- MASpace: np.array
+                Array of memory-action pairs.
+            --- TMat: np.array of shape (Y, M, M, A)
+                Transition probability matrix.
+            --- rho: np.array of shape (M)
+                Initial memory occupation.
+            --- observations: np.array
+                Array of observations.
+
+            Returns:
+            --- actions: np.array
+                Array of actions.
+            --- memories: np.array
+                Array of memory states.
+            """
             actions = np.zeros((NTraj, NSteps), dtype = np.int32)
             memories = np.zeros((NTraj, NSteps), dtype = np.int32)
     
@@ -264,6 +506,31 @@ class InferenceDiscreteObs():
     def __init__(self, M, A, Y,
                  ObsSpace = None, ActSpace = None, MemSpace = None,
                  seed = None):
+        """
+        Creates an instance of a Finite State Controller (FSC) for discrete observations. The parameters
+        M, A, and Y are used to define the number of memory states, actions, and observations, respectively.
+        The FSC is then trained to learn the transition probabilities and the initial memory occupation from
+        a set of trajectories, by minimizing the negative log-likelihood of the observed trajectories.
+
+        The optimization is performed using PyTorch, and the model is trained using the Adam optimizer with
+        a learning rate schedule.
+
+        Parameters:
+        --- M: int
+            Number of memory states.
+        --- A: int
+            Number of actions.
+        --- Y: int
+            Number of observations.
+        --- ObsSpace: list (default = None)
+            List of observations. If None, the observations are assumed to be integers from 0 to Y-1.
+        --- ActSpace: list (default = None)
+            List of actions. If None, the actions are assumed to be integers from 0 to A-1.
+        --- MemSpace: list (default = None)
+            List of memory states. If None, the memory states are assumed to be integers from 0 to M-1.
+        --- seed: int (default = None)
+            Seed for the random number generator. If None, the seed is not set.
+        """
 
         self.M = M
         self.A = A
@@ -316,6 +583,13 @@ class InferenceDiscreteObs():
 
 
     def load_trajectories(self, trajectories):
+        """
+        Loads a set of trajectories to be used for training the FSC.
+
+        Parameters:
+        --- trajectories: list of dicts
+            List of dictionaries containing the actions and observations for each trajectory.
+        """
         self.ObsAct_trajectories = []
 
         for trajectory in trajectories:
@@ -325,6 +599,17 @@ class InferenceDiscreteObs():
         self.trajectories_loaded = True
 
     def get_obs_idx(self, obs):
+        """
+        Helper method to get the index of an observation in the observation space.
+
+        Parameters:
+        --- obs: int
+            Observation to get the index of.
+
+        Returns:
+        --- idx: int
+            Index of the observation in the observation space.
+        """
         if self.custom_obs_space:
             assert obs in self.ObsSpace, f"Observation {obs} is not in the observation space."
             return torch.where(self.ObsSpace == obs)[0][0]
@@ -332,6 +617,17 @@ class InferenceDiscreteObs():
             return obs
     
     def get_act_idx(self, act):
+        """
+        Helper method to get the index of an action in the action space.
+
+        Parameters:
+        --- act: int
+            Action to get the index of.
+
+        Returns:
+        --- idx: int
+            Index of the action in the action space.
+        """
         if self.custom_act_space:
             assert act in self.ActSpace, f"Action {act} is not in the action space."
             return torch.where(self.ActSpace == act)[0][0]
@@ -339,6 +635,21 @@ class InferenceDiscreteObs():
             return act
 
     def evaluate_nloglikelihood(self, idx_traj, grad_required = False):
+        """
+        Wrapper method to evaluate the negative log-likelihood of a given trajectory.
+        It distinguishes between the case of custom observation and action spaces and the case
+        of default observation and action spaces.
+
+        Parameters:
+        --- idx_traj: int
+            Index of the trajectory to evaluate.
+        --- grad_required: bool (default = False)
+            Flag indicating whether the gradient is required or not.
+
+        Returns:
+        --- nLL: float
+            Negative log-likelihood of the trajectory.
+        """
         observations, actions = self.ObsAct_trajectories[idx_traj]
         if self.custom_obs_space or self.custom_act_space:
             return self.loss_customspace(observations, actions, grad_required = grad_required)
@@ -346,6 +657,22 @@ class InferenceDiscreteObs():
             return self.loss(observations, actions, grad_required = grad_required)
         
     def loss_customspace(self, observations, actions, grad_required = True):
+        """
+        Method to compute the negative log-likelihood of a given trajectory with custom observation and action spaces.
+        The gradients of the loss are computed if the grad_required flag is set to True.
+
+        Parameters:
+        --- observations: torch.tensor
+            Array of observations.
+        --- actions: torch.tensor
+            Array of actions.
+        --- grad_required: bool (default = True)
+            Flag indicating whether the gradient is required or not.
+
+        Returns:
+        --- nLL: float
+            Negative log-likelihood of the trajectory.
+        """
         nLL = torch.tensor(0.0, requires_grad = grad_required)
 
         for t in range(observations.size(0)):
@@ -366,6 +693,22 @@ class InferenceDiscreteObs():
         return nLL - torch.log(torch.sum(m))
     
     def loss(self, observations, actions, grad_required = True):
+        """
+        Method to compute the negative log-likelihood of a given trajectory with default observation and action spaces.
+        The gradients of the loss are computed if the grad_required flag is set to True.
+
+        Parameters:
+        --- observations: torch.tensor
+            Array of observations.
+        --- actions: torch.tensor
+            Array of actions.
+        --- grad_required: bool (default = True)
+            Flag indicating whether the gradient is required or not.
+
+        Returns:
+        --- nLL: float
+            Negative log-likelihood of the trajectory.
+        """
         nLL = torch.tensor(0.0, requires_grad = grad_required)
 
         for t in range(observations.size(0)):
@@ -386,7 +729,33 @@ class InferenceDiscreteObs():
         return nLL - torch.log(torch.sum(m))
 
 
-    def optimize(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None):
+    def optimize(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
+        """
+        Method to optimize the parameters of the FSC using the loaded trajectories. The optimization is performed
+        using the Adam optimizer with a learning rate schedule. The trajectories are split into a training and a
+        validation set, and the loss is computed for both sets at each epoch. The training loss is computed over
+        random batches of trajectories.
+
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr: float
+            Initial learning rate for the optimizer.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
         assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
         assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
 
@@ -394,6 +763,9 @@ class InferenceDiscreteObs():
             self.optimizer = optimizer([self.theta, self.psi], lr = lr)
         else:
             self.optimizer = torch.optim.Adam([self.theta, self.psi], lr = lr)
+
+        # add an exponential scheduler
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
 
         NTrain = int(train_split * len(self.ObsAct_trajectories))
         NVal = len(self.ObsAct_trajectories) - NTrain
@@ -417,30 +789,237 @@ class InferenceDiscreteObs():
                 self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
                 self.rho = nn.Softmax(dim = 0)(self.psi)
 
+                count = 0
+
                 for idx_traj in range(idx, idx + NBatch):
                     if idx_traj < NTrain:
                         # here we go without the custom space for simplicity
                         loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
                         loss = loss + loss_traj
+                        count += 1
 
                 loss.backward()
                 self.optimizer.step()
-                running_loss += loss.item()/NBatch
+                running_loss += loss.item()/count
 
-                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()}")
+                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+            running_loss = running_loss/(NTrain//NBatch)
             losses_train.append(running_loss)
+
+            scheduler.step()
 
             running_loss_val = 0.0
 
-            for idx in range(0, NVal, NBatch):
+            for idx_traj in range(NVal):
                 loss_val = torch.tensor(0.0, requires_grad = False)
 
-                for idx_traj in range(idx, idx + NBatch):
-                    if idx_traj < NVal:
-                        loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
-                        loss_val = loss_val + loss_traj_val
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
+                loss_val = loss_val + loss_traj_val
 
                 running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val/NVal
+            losses_val.append(running_loss_val)
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val}")
+
+        self.trained = True
+
+        return losses_train, losses_val
+
+    def optimize_psionly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
+        """
+        Method to optimize the initial memory occupation of the FSC using the loaded trajectories, while keeping
+        the transition probabilities fixed. The optimization is performed using the Adam optimizer with a learning
+        rate schedule. The trajectories are split into a training and a validation set, and the loss is computed for
+        both sets at each epoch. The training loss is computed over random batches of trajectories.
+
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr: float
+            Initial learning rate for the optimizer.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
+        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
+
+        if optimizer is not None:
+            self.optimizer = optimizer([self.psi], lr = lr)
+        else:
+            self.optimizer = torch.optim.Adam([self.psi], lr = lr)
+
+        # add an exponential scheduler
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
+
+        NTrain = int(train_split * len(self.ObsAct_trajectories))
+        NVal = len(self.ObsAct_trajectories) - NTrain
+
+        trjs_train = self.ObsAct_trajectories[:NTrain]
+        trjs_val = self.ObsAct_trajectories[NTrain:]
+
+        losses_train = []
+        losses_val = []
+
+        self.theta = self.theta.detach().requires_grad_(False)
+        self.Tmat = fun.torch_softmax_2dim(self.theta, dims = (2, 3)).detach().requires_grad_(False)
+
+        print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
+
+        for epoch in range(NEpochs):
+            running_loss = 0.0
+            random.shuffle(trjs_train)
+
+            for idx in range(0, NTrain, NBatch):
+                self.optimizer.zero_grad()
+                loss = torch.tensor(0.0, requires_grad = True)
+
+                self.rho = nn.Softmax(dim = 0)(self.psi)
+                self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
+
+                count = 0
+                for idx_traj in range(idx, idx + NBatch):
+                    if idx_traj < NTrain:
+                        # here we go without the custom space for simplicity
+                        loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
+                        loss = loss + loss_traj
+                        count += 1
+
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item()/count
+
+                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+            running_loss = running_loss/(NTrain//NBatch)
+            losses_train.append(running_loss)
+
+            scheduler.step()
+
+            running_loss_val = 0.0
+
+            for idx_traj in range(NVal):
+                loss_val = torch.tensor(0.0, requires_grad = False)
+
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
+                loss_val = loss_val + loss_traj_val
+
+                running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val/NVal
+            losses_val.append(running_loss_val)
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val}")
+
+        self.trained = True
+
+        return losses_train, losses_val
+
+    def optimize_thetaonly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
+        """
+        Method to optimize the transition probabilities of the FSC using the loaded trajectories, while keeping
+        the initial memory occupation fixed. The optimization is performed using the Adam optimizer with a learning
+        rate schedule. The trajectories are split into a training and a validation set, and the loss is computed for
+        both sets at each epoch. The training loss is computed over random batches of trajectories.
+        
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr: float
+            Initial learning rate for the optimizer.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
+        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
+
+        if optimizer is not None:
+            self.optimizer = optimizer([self.theta], lr = lr)
+        else:
+            self.optimizer = torch.optim.Adam([self.theta], lr = lr)
+
+        # add an exponential scheduler
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
+
+        NTrain = int(train_split * len(self.ObsAct_trajectories))
+        NVal = len(self.ObsAct_trajectories) - NTrain
+
+        trjs_train = self.ObsAct_trajectories[:NTrain]
+        trjs_val = self.ObsAct_trajectories[NTrain:]
+
+        losses_train = []
+        losses_val = []
+
+        self.psi = self.psi.detach().requires_grad_(False)
+        self.rho = nn.Softmax(dim = 0)(self.psi).detach().requires_grad_(False)
+
+        print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
+
+        for epoch in range(NEpochs):
+            running_loss = 0.0
+            random.shuffle(trjs_train)
+
+            for idx in range(0, NTrain, NBatch):
+                self.optimizer.zero_grad()
+                loss = torch.tensor(0.0, requires_grad = True)
+
+                self.rho = nn.Softmax(dim = 0)(self.psi)
+                self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
+
+                count = 0
+                for idx_traj in range(idx, idx + NBatch):
+                    if idx_traj < NTrain:
+                        # here we go without the custom space for simplicity
+                        loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
+                        loss = loss + loss_traj
+                        count += 1
+
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item()/count
+
+                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+            running_loss = running_loss/(NTrain//NBatch)
+
+            losses_train.append(running_loss)
+
+            scheduler.step()
+
+            running_loss_val = 0.0
+
+            for idx_traj in range(NVal):
+                loss_val = torch.tensor(0.0, requires_grad = False)
+
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
+                loss_val = loss_val + loss_traj_val
+
+                running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val/NVal
 
             losses_val.append(running_loss_val)
 
@@ -449,4 +1028,28 @@ class InferenceDiscreteObs():
         self.trained = True
 
         return losses_train, losses_val
+
+
+    def load_theta(self, theta):
+        """
+        Loads a new set of parameters for the transition probabilities of the FSC.
+
+        Parameters:
+        --- theta: torch.tensor of shape (Y, M, M, A)
+            New parameters for the transition probabilities.
+        """
+        self.theta = nn.Parameter(torch.tensor(theta, device = self.device))
+        self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
+        self.policy = torch.sum(self.TMat, dim = 2)
+
+    def load_psi(self, psi):
+        """
+        Loads a new set of parameters for the initial memory occupation of the FSC.
+
+        Parameters:
+        --- psi: torch.tensor of shape (M)
+            New parameters for the initial memory occupation.
+        """
+        self.psi = nn.Parameter(torch.tensor(psi, device = self.device))
+        self.rho = nn.Softmax(dim = 0)(self.psi)
 
