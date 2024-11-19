@@ -489,13 +489,14 @@ class GenerationDiscreteObs():
                 initial_memory = fun.numba_random_choice(MSpace, rho)
     
                 memories[n, 0] = initial_memory
-                actions[n, 0] = -1
+                #actions[n, 0] = -1
     
-                for t in range(1, NSteps):
-                    transition_probs = TMat[observations[n, t-1], memories[n, t-1]].flatten()
+                for t in range(0, NSteps):
+                    transition_probs = TMat[observations[n, t], memories[n, t]].flatten()
                     new_MA = fun.numba_random_choice(MASpace, transition_probs)
-                    memories[n, t] = new_MA[0]
-                    actions[n, t -1] = new_MA[1]
+                    if t < NSteps - 1:
+                        memories[n, t+1] = new_MA[0]
+                    actions[n, t] = new_MA[1]
     
             return actions, memories
 
