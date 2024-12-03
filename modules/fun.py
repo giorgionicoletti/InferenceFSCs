@@ -79,3 +79,27 @@ def combine_spaces(space1, space2):
         Combined space, with shape (space1.size * space2.size, 2).
     """
     return np.array(np.meshgrid(space1, space2)).T.reshape(-1, 2)
+
+import itertools
+def get_conditional_permutations_numpy(p_array):
+    """
+    Get permutations for conditional probability p(a,m'|m,y) from numpy array
+    Input array shape: (Y, M, M, A) where
+    - First M dimension is m' (output state)
+    - Second M dimension is m (input state)
+    Returns numpy array of shape (num_perms, Y, M, M, A)
+    """
+    Y, M, _, A = p_array.shape
+    perms = list(itertools.permutations(range(M)))
+    
+    # Create output array for all permutations
+    output = np.zeros((len(perms), A, M, M, Y))
+    
+    for i, perm in enumerate(perms):
+        # Permute both m and m' dimensions according to the same permutation
+        permuted = p_array[:, perm, :, :]  # Permute m' (output states)
+        permuted = permuted[:, :, perm, :]  # Permute m (input states)
+        
+        output[i] = permuted
+        
+    return output

@@ -444,11 +444,12 @@ class GenerationDiscreteObs():
 
         memories[0] = initial_memory
 
-        for t in range(1, NSteps):
-            transition_probs = TMat[observations[t-1], memories[t-1]].flatten()
+        for t in range(0, NSteps):
+            transition_probs = TMat[observations[t], memories[t]].flatten()
             new_MA = fun.numba_random_choice(MASpace, transition_probs)
-            memories[t] = new_MA[0]
-            actions[t-1] = new_MA[1]
+            if t < NSteps - 1:
+                memories[t + 1] = new_MA[0]
+            actions[t] = new_MA[1]
 
         return actions, memories
     
@@ -506,7 +507,7 @@ class InferenceDiscreteObs():
 
     def __init__(self, M, A, Y,
                  ObsSpace = None, ActSpace = None, MemSpace = None,
-                 seed = None):
+                 seed = None, minus1_opt = False):
         """
         Creates an instance of a Finite State Controller (FSC) for discrete observations. The parameters
         M, A, and Y are used to define the number of memory states, actions, and observations, respectively.
@@ -531,6 +532,10 @@ class InferenceDiscreteObs():
             List of memory states. If None, the memory states are assumed to be integers from 0 to M-1.
         --- seed: int (default = None)
             Seed for the random number generator. If None, the seed is not set.
+        --- minus1_opt: bool (default = False)
+            If True, the model learns the parameters of the FSC with M-1 memory states, and the initial memory occupation
+            is set to 1 for the first memory state and learned for the others. This is useful to avoid identifiability
+            issues in the optimization.
         """
 
         self.M = M
@@ -548,7 +553,16 @@ class InferenceDiscreteObs():
             torch.manual_seed(seed)
 
         self.theta = nn.Parameter(torch.randn(self.Y, self.M, self.M, self.A, device = self.device))
-        self.psi = nn.Parameter(torch.randn(self.M, device = self.device))
+
+        if minus1_opt:
+            self.psi_toopt = nn.Parameter(torch.randn(self.M - 1, device = self.device))
+
+            self.psi = torch.concatenate([torch.ones(1, device = self.device), self.psi_toopt],
+                                          dim = 0)
+        else:
+            self.psi = nn.Parameter(torch.randn(self.M, device = self.device))
+
+        self.minus1_opt = minus1_opt
 
         if ObsSpace is not None:
             assert len(ObsSpace) == self.Y, "The number of observations in ObsSpace must be equal to Y."
@@ -803,7 +817,12 @@ class InferenceDiscreteObs():
                 self.optimizer.step()
                 running_loss += loss.item()/count
 
+                # normalize the parameters using nn.functional.normalize
+                self.psi.data = nn.functional.normalize(self.psi.data, p = 2, dim = 0)
+                self.theta.data = nn.functional.normalize(self.theta.data, p = 2, dim = 0)
+
                 print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+                
             running_loss = running_loss/(NTrain//NBatch)
             losses_train.append(running_loss)
 
@@ -828,7 +847,8 @@ class InferenceDiscreteObs():
 
         return losses_train, losses_val
 
-    def optimize_psionly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
+    def optimize_psionly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9,
+                         verbose = False):
         """
         Method to optimize the initial memory occupation of the FSC using the loaded trajectories, while keeping
         the transition probabilities fixed. The optimization is performed using the Adam optimizer with a learning
@@ -861,7 +881,10 @@ class InferenceDiscreteObs():
         if optimizer is not None:
             self.optimizer = optimizer([self.psi], lr = lr)
         else:
-            self.optimizer = torch.optim.Adam([self.psi], lr = lr)
+            if self.minus1_opt:
+                self.optimizer = torch.optim.Adam([self.psi_toopt], lr = lr)
+            else:
+                self.optimizer = torch.optim.Adam([self.psi], lr = lr)
 
         # add an exponential scheduler
         scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
@@ -880,6 +903,11 @@ class InferenceDiscreteObs():
 
         print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
 
+        best_val_loss = float('inf')
+        best_epoch = -1
+        best_params = None
+
+
         for epoch in range(NEpochs):
             running_loss = 0.0
             random.shuffle(trjs_train)
@@ -887,6 +915,10 @@ class InferenceDiscreteObs():
             for idx in range(0, NTrain, NBatch):
                 self.optimizer.zero_grad()
                 loss = torch.tensor(0.0, requires_grad = True)
+
+                if self.minus1_opt:
+                    self.psi = torch.concatenate([torch.ones(1, device = self.device), self.psi_toopt],
+                                                dim = 0)
 
                 self.rho = nn.Softmax(dim = 0)(self.psi)
                 self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
@@ -899,15 +931,19 @@ class InferenceDiscreteObs():
                         loss = loss + loss_traj
                         count += 1
 
+                #loss += lam/count*torch.sqrt(self.psi.pow(2).sum())
+                
                 loss.backward()
                 self.optimizer.step()
                 running_loss += loss.item()/count
 
-                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+                #self.psi.data /= torch.norm(self.psi.data, p = 2)
+                #self.psi.data = nn.functional.normalize(self.psi.data, p = 2, dim = 0)
+
+                if verbose:
+                    print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count}")
             running_loss = running_loss/(NTrain//NBatch)
             losses_train.append(running_loss)
-
-            scheduler.step()
 
             running_loss_val = 0.0
 
@@ -922,9 +958,21 @@ class InferenceDiscreteObs():
             running_loss_val = running_loss_val/NVal
             losses_val.append(running_loss_val)
 
-            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val}")
+            if running_loss_val < best_val_loss:
+                best_val_loss = running_loss_val
+                best_epoch = epoch
+                best_params = self.psi.clone()
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+
+            scheduler.step()
 
         self.trained = True
+        self.best_val_loss = best_val_loss
+        self.best_epoch = best_epoch
+        self.best_params = best_params
+
+        print(f"Best validation loss: {best_val_loss} reached at epoch {best_epoch + 1}")
 
         return losses_train, losses_val
 
