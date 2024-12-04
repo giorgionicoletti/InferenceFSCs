@@ -6,7 +6,7 @@ from torch import nn
 import random
 
 import matplotlib.pyplot as plt
-import scipy
+
 
 class GenerationDiscreteObs():
 
@@ -507,7 +507,7 @@ class InferenceDiscreteObs():
 
     def __init__(self, M, A, Y,
                  ObsSpace = None, ActSpace = None, MemSpace = None,
-                 seed = None):
+                 seed = None, minus1_opt = False):
         """
         Creates an instance of a Finite State Controller (FSC) for discrete observations. The parameters
         M, A, and Y are used to define the number of memory states, actions, and observations, respectively.
@@ -532,6 +532,10 @@ class InferenceDiscreteObs():
             List of memory states. If None, the memory states are assumed to be integers from 0 to M-1.
         --- seed: int (default = None)
             Seed for the random number generator. If None, the seed is not set.
+        --- minus1_opt: bool (default = False)
+            If True, the model learns the parameters of the FSC with M-1 memory states, and the initial memory occupation
+            is set to 1 for the first memory state and learned for the others. This is useful to avoid identifiability
+            issues in the optimization.
         """
 
         self.M = M
@@ -549,7 +553,16 @@ class InferenceDiscreteObs():
             torch.manual_seed(seed)
 
         self.theta = nn.Parameter(torch.randn(self.Y, self.M, self.M, self.A, device = self.device))
-        self.psi = torch.randn(self.M, device = self.device)
+
+        if minus1_opt:
+            self.psi_toopt = nn.Parameter(torch.randn(self.M - 1, device = self.device))
+
+            self.psi = torch.concatenate([torch.ones(1, device = self.device), self.psi_toopt],
+                                          dim = 0)
+        else:
+            self.psi = nn.Parameter(torch.randn(self.M, device = self.device))
+
+        self.minus1_opt = minus1_opt
 
         if ObsSpace is not None:
             assert len(ObsSpace) == self.Y, "The number of observations in ObsSpace must be equal to Y."
@@ -594,21 +607,9 @@ class InferenceDiscreteObs():
         """
         self.ObsAct_trajectories = []
 
-        self.pStart_ya_emp = np.zeros((self.Y, self.A))   
-
         for trajectory in trajectories:
             self.ObsAct_trajectories.append([torch.tensor(trajectory["observations"]),
                                              torch.tensor(trajectory["actions"])])
-            
-            y0 = trajectory["observations"][0]
-            a0 = trajectory["actions"][0]
-
-            idx_y0 = self.get_obs_idx(y0)
-            idx_a0 = self.get_act_idx(a0)
-
-            self.pStart_ya_emp[idx_y0, idx_a0] += 1
-        
-        self.pStart_ya_emp /= np.sum(self.pStart_ya_emp)
             
         self.trajectories_loaded = True
 
@@ -740,10 +741,10 @@ class InferenceDiscreteObs():
             nLL = nLL - torch.log(mv)
             m /= mv
 
-        return nLL - torch.log(torch.sum(m))       
+        return nLL - torch.log(torch.sum(m))
 
-    def optimize(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9,
-                 verbose = False, maxiter = 1000, psi0 = None, method = None, hess = None):
+
+    def optimize(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
         """
         Method to optimize the parameters of the FSC using the loaded trajectories. The optimization is performed
         using the Adam optimizer with a learning rate schedule. The trajectories are split into a training and a
@@ -771,7 +772,239 @@ class InferenceDiscreteObs():
             List of validation losses at each epoch.
         """
         assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
-        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
+        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
+
+        if optimizer is not None:
+            self.optimizer = optimizer([self.theta, self.psi], lr = lr)
+        else:
+            self.optimizer = torch.optim.Adam([self.theta, self.psi], lr = lr)
+
+        # add an exponential scheduler
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
+
+        NTrain = int(train_split * len(self.ObsAct_trajectories))
+        NVal = len(self.ObsAct_trajectories) - NTrain
+
+        trjs_train = self.ObsAct_trajectories[:NTrain]
+        trjs_val = self.ObsAct_trajectories[NTrain:]
+
+        losses_train = []
+        losses_val = []
+
+        print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
+
+        for epoch in range(NEpochs):
+            running_loss = 0.0
+            random.shuffle(trjs_train)
+
+            for idx in range(0, NTrain, NBatch):
+                self.optimizer.zero_grad()
+                loss = torch.tensor(0.0, requires_grad = True)
+
+                self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
+                self.rho = nn.Softmax(dim = 0)(self.psi)
+
+                count = 0
+
+                for idx_traj in range(idx, idx + NBatch):
+                    if idx_traj < NTrain:
+                        # here we go without the custom space for simplicity
+                        loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
+                        loss = loss + loss_traj
+                        count += 1
+
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item()/count
+
+                # normalize the parameters using nn.functional.normalize
+                self.psi.data = nn.functional.normalize(self.psi.data, p = 2, dim = 0)
+                self.theta.data = nn.functional.normalize(self.theta.data, p = 2, dim = 0)
+
+                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+                
+            running_loss = running_loss/(NTrain//NBatch)
+            losses_train.append(running_loss)
+
+            scheduler.step()
+
+            running_loss_val = 0.0
+
+            for idx_traj in range(NVal):
+                loss_val = torch.tensor(0.0, requires_grad = False)
+
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
+                loss_val = loss_val + loss_traj_val
+
+                running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val/NVal
+            losses_val.append(running_loss_val)
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val}")
+
+        self.trained = True
+
+        return losses_train, losses_val
+
+    def optimize_psionly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9,
+                         verbose = False):
+        """
+        Method to optimize the initial memory occupation of the FSC using the loaded trajectories, while keeping
+        the transition probabilities fixed. The optimization is performed using the Adam optimizer with a learning
+        rate schedule. The trajectories are split into a training and a validation set, and the loss is computed for
+        both sets at each epoch. The training loss is computed over random batches of trajectories.
+
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr: float
+            Initial learning rate for the optimizer.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
+        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
+
+        if optimizer is not None:
+            self.optimizer = optimizer([self.psi], lr = lr)
+        else:
+            if self.minus1_opt:
+                self.optimizer = torch.optim.Adam([self.psi_toopt], lr = lr)
+            else:
+                self.optimizer = torch.optim.Adam([self.psi], lr = lr)
+
+        # add an exponential scheduler
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma = gamma)
+
+        NTrain = int(train_split * len(self.ObsAct_trajectories))
+        NVal = len(self.ObsAct_trajectories) - NTrain
+
+        trjs_train = self.ObsAct_trajectories[:NTrain]
+        trjs_val = self.ObsAct_trajectories[NTrain:]
+
+        losses_train = []
+        losses_val = []
+
+        self.theta = self.theta.detach().requires_grad_(False)
+        self.Tmat = fun.torch_softmax_2dim(self.theta, dims = (2, 3)).detach().requires_grad_(False)
+
+        print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
+
+        best_val_loss = float('inf')
+        best_epoch = -1
+        best_params = None
+
+
+        for epoch in range(NEpochs):
+            running_loss = 0.0
+            random.shuffle(trjs_train)
+
+            for idx in range(0, NTrain, NBatch):
+                self.optimizer.zero_grad()
+                loss = torch.tensor(0.0, requires_grad = True)
+
+                if self.minus1_opt:
+                    self.psi = torch.concatenate([torch.ones(1, device = self.device), self.psi_toopt],
+                                                dim = 0)
+
+                self.rho = nn.Softmax(dim = 0)(self.psi)
+                self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
+
+                count = 0
+                for idx_traj in range(idx, idx + NBatch):
+                    if idx_traj < NTrain:
+                        # here we go without the custom space for simplicity
+                        loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
+                        loss = loss + loss_traj
+                        count += 1
+
+                #loss += lam/count*torch.sqrt(self.psi.pow(2).sum())
+                
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item()/count
+
+                #self.psi.data /= torch.norm(self.psi.data, p = 2)
+                #self.psi.data = nn.functional.normalize(self.psi.data, p = 2, dim = 0)
+
+                if verbose:
+                    print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count}")
+            running_loss = running_loss/(NTrain//NBatch)
+            losses_train.append(running_loss)
+
+            running_loss_val = 0.0
+
+            for idx_traj in range(NVal):
+                loss_val = torch.tensor(0.0, requires_grad = False)
+
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required = False)
+                loss_val = loss_val + loss_traj_val
+
+                running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val/NVal
+            losses_val.append(running_loss_val)
+
+            if running_loss_val < best_val_loss:
+                best_val_loss = running_loss_val
+                best_epoch = epoch
+                best_params = self.psi.clone()
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+
+            scheduler.step()
+
+        self.trained = True
+        self.best_val_loss = best_val_loss
+        self.best_epoch = best_epoch
+        self.best_params = best_params
+
+        print(f"Best validation loss: {best_val_loss} reached at epoch {best_epoch + 1}")
+
+        return losses_train, losses_val
+
+    def optimize_thetaonly(self, NEpochs, NBatch, lr, train_split = 0.8, optimizer = None, gamma = 0.9):
+        """
+        Method to optimize the transition probabilities of the FSC using the loaded trajectories, while keeping
+        the initial memory occupation fixed. The optimization is performed using the Adam optimizer with a learning
+        rate schedule. The trajectories are split into a training and a validation set, and the loss is computed for
+        both sets at each epoch. The training loss is computed over random batches of trajectories.
+        
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr: float
+            Initial learning rate for the optimizer.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
+        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flaf self.trained to False."
 
         if optimizer is not None:
             self.optimizer = optimizer([self.theta], lr = lr)
@@ -790,12 +1023,8 @@ class InferenceDiscreteObs():
         losses_train = []
         losses_val = []
 
-        if method is None:
-            method = 'trust-ncg'
-
-        if hess is None:
-            hess = '2-point'
-
+        self.psi = self.psi.detach().requires_grad_(False)
+        self.rho = nn.Softmax(dim = 0)(self.psi).detach().requires_grad_(False)
 
         print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
 
@@ -807,22 +1036,10 @@ class InferenceDiscreteObs():
                 self.optimizer.zero_grad()
                 loss = torch.tensor(0.0, requires_grad = True)
 
+                self.rho = nn.Softmax(dim = 0)(self.psi)
                 self.TMat = fun.torch_softmax_2dim(self.theta, dims = (2, 3))
 
-                wVec = self.TMat.detach().cpu().numpy().sum(axis = 2).transpose(0, 2, 1)
-
-                if psi0 is None:
-                    psi0 = np.zeros(self.M)
-                
-                res = scipy.optimize.minimize(fun.fun_MSE, psi0, args = (wVec, self.pStart_ya_emp),
-                                              jac = fun.jac_MSE, method=method,
-                                              hess = hess, options = {'maxiter': maxiter})
-                
-                self.psi = torch.tensor(res.x.astype(np.float32), device = self.device)
-                self.rho = nn.Softmax(dim = 0)(self.psi)
-
                 count = 0
-
                 for idx_traj in range(idx, idx + NBatch):
                     if idx_traj < NTrain:
                         # here we go without the custom space for simplicity
@@ -834,11 +1051,12 @@ class InferenceDiscreteObs():
                 self.optimizer.step()
                 running_loss += loss.item()/count
 
-                if verbose: 
-                    print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
-                
+                print(f"\t Epoch {epoch + 1} - Batch {idx//NBatch + 1} - Loss: {loss.item()/count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
             running_loss = running_loss/(NTrain//NBatch)
+
             losses_train.append(running_loss)
+
+            scheduler.step()
 
             running_loss_val = 0.0
 
@@ -851,41 +1069,14 @@ class InferenceDiscreteObs():
                 running_loss_val += loss_val.item()
 
             running_loss_val = running_loss_val/NVal
+
             losses_val.append(running_loss_val)
 
-            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val}")
 
-            scheduler.step()
-            
         self.trained = True
 
         return losses_train, losses_val
-
-    def optimize_psionly(self, method = None, hess = None, maxiter = 1000, psi0 = None):
-        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
-        assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
-
-        if psi0 is None:
-            psi0 = np.zeros(self.M)
-
-        wVec = self.TMat.detach().cpu().numpy().sum(axis = 2).transpose(0, 2, 1)
-
-        if method is None:
-            method = 'trust-ncg'
-
-        if hess is None:
-            hess = '2-point'
-        
-        res = scipy.optimize.minimize(fun.fun_MSE, psi0, args = (wVec, self.pStart_ya_emp),
-                                      jac = fun.jac_MSE, method=method,
-                                      hess = hess, options = {'maxiter': maxiter})
-        
-        self.psi = torch.tensor(res.x.astype(np.float32), device = self.device)
-
-        self.rho = nn.Softmax(dim = 0)(self.psi)
-        self.trained = True
-
-        return res.fun
 
 
     def load_theta(self, theta):

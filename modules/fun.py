@@ -103,3 +103,66 @@ def get_conditional_permutations_numpy(p_array):
         output[i] = permuted
         
     return output
+
+
+
+def fun_arg_rho_tilde(rhoVec, wVec):
+    return wVec/(wVec*rhoVec).sum(axis = -1)[..., None]
+
+def fun_to_min(psi, wVec, pya):
+    rhoVec = np.exp(psi)
+    rhoVec /= rhoVec.sum()
+
+    arg_rho_tilde = fun_arg_rho_tilde(rhoVec, wVec)
+    
+    return np.sum(pya[..., None]*arg_rho_tilde*rhoVec[None, ...], axis = (0,1)) - rhoVec
+
+def fun_MSE(psi, wVec, pya):
+    MSE = fun_to_min(psi, wVec, pya)**2
+    return np.sum(np.sqrt(MSE))
+
+def fun_jac_rho(rhoVec):
+    M = len(rhoVec)
+    jac = np.zeros((M, M))
+    for mu in range(M):
+        for nu in range(M):
+            if mu == nu:
+                jac[mu, nu] = rhoVec[mu] - rhoVec[mu]*rhoVec[nu]
+            else:
+                jac[mu, nu] = -rhoVec[mu]*rhoVec[nu]
+    
+    return jac
+
+def jac_fun(psi, wVec, pya):
+    rhoVec = np.exp(psi)
+    rhoVec /= rhoVec.sum()
+
+    M = len(rhoVec)
+
+    arg_rho_tilde = fun_arg_rho_tilde(rhoVec, wVec)
+    jac_rho = fun_jac_rho(rhoVec)
+
+    jac = np.zeros((M, M))
+
+    for mu in range(M):
+        for nu in range(M):
+            temp = arg_rho_tilde[:, :, mu]*(jac_rho[mu, nu] + rhoVec[mu]*rhoVec[nu])
+            temp -= arg_rho_tilde[:, :, mu]*arg_rho_tilde[:, :, nu]*rhoVec[mu]*rhoVec[nu]
+            
+            temp = np.sum(pya*temp)
+
+            jac[mu, nu] = temp - jac_rho[mu, nu]
+    return jac
+
+def jac_MSE(psi, wVec, pya):
+    M = len(psi)
+    jac = jac_fun(psi, wVec, pya)
+    f = fun_to_min(psi, wVec, pya)
+    fsqrt = np.divide(f, np.sqrt(f**2), out=np.zeros_like(f), where=f!=0)
+    
+    j = np.zeros(M)
+
+    for nu in range(M):
+        for mu in range(M):
+            j[nu] += fsqrt[mu]*jac[mu, nu]
+    return j
