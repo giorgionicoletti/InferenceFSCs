@@ -30,6 +30,7 @@ def ContinuousDichotomousObservations(NSteps, w0, w1, dt):
 def SingleDiscreteMarkovChain(NSteps, RateMatrix, initial_state = None, seed = None):
     if seed is not None:
         np.random.seed(seed)
+
     NStates = RateMatrix.shape[0]
     StateSpace = np.arange(NStates)
 
@@ -54,7 +55,18 @@ def DiscreteMarkovChain(NTraj, NSteps, RateMatrix, initial_state = None, initial
     states = np.zeros((NTraj, NSteps), dtype = np.int32)
     
     for idx in nb.prange(NTraj):
-        states[idx] = SingleDiscreteMarkovChain(NSteps, RateMatrix, initial_state, seed = initial_seed + idx)
+        if initial_seed is not None:
+            seed = initial_seed + idx
+        else:
+            seed = None
+        states[idx] = SingleDiscreteMarkovChain(NSteps, RateMatrix, initial_state, seed = seed)
     
     return states
-    
+
+
+@nb.njit
+def get_waiting_times(N, rate):
+    x = np.random.rand(N)
+
+    return -np.log(1-x)/rate
+

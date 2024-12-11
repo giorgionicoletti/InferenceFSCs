@@ -861,32 +861,77 @@ class InferenceDiscreteObs():
 
         return losses_train, losses_val
 
-    def optimize_psionly(self, method = None, hess = None, maxiter = 1000, psi0 = None):
+    # def optimize_psionly(self, method = None, hess = None, maxiter = 1000, psi0 = None):
+    #     assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+    #     assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
+
+    #     if psi0 is None:
+    #         psi0 = np.zeros(self.M)
+
+    #     wVec = self.TMat.detach().cpu().numpy().sum(axis = 2).transpose(0, 2, 1)
+
+    #     if method is None:
+    #         method = 'trust-ncg'
+
+    #     if hess is None:
+    #         hess = '2-point'
+        
+    #     res = scipy.optimize.minimize(fun.fun_MSE, psi0, args = (wVec, self.pStart_ya_emp),
+    #                                   jac = fun.jac_MSE, method=method,
+    #                                   hess = hess, options = {'maxiter': maxiter})
+        
+    #     self.psi = torch.tensor(res.x.astype(np.float32), device = self.device)
+
+    #     self.rho = nn.Softmax(dim = 0)(self.psi)
+    #     self.trained = True
+
+    #     return res.fun
+
+    @staticmethod
+    @nb.njit
+    def optimize_rho(Y, M, A, TMat, pya, rhok, maxiter, th):
+        wVec = np.zeros((Y, A, M))
+        for y in range(Y):
+            for a in range(A):
+                for m in range(M):
+                    wVec[y, a, m] = np.sum(TMat[y, m, :, a])
+
+        for _ in range(maxiter):
+            wsumexp_test_k = np.zeros((Y, A))
+            
+            for y in range(Y):
+                for a in range(A):
+                    wsumexp_test_k[y, a] = np.sum(wVec[y, a] * rhok)
+            
+            grad = wVec * rhok / wsumexp_test_k[..., None]
+
+            rhok_new = np.zeros(M)
+
+            for y in range(Y):
+                for a in range(A):
+                    rhok_new += pya[y, a] * grad[y, a]
+            
+            # if np.linalg.norm(rhok_new - rhok) < th:
+            #     break
+
+            rhok = rhok_new
+
+        return rhok, np.linalg.norm(rhok_new - rhok)
+
+    def optimize_psionly(self, maxiter = 1000, rho0 = None, th = 1e-6):
         assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
         assert self.trained == False, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
 
-        if psi0 is None:
-            psi0 = np.zeros(self.M)
+        if rho0 is None:
+            rho0 = np.ones(self.M)/self.M
 
-        wVec = self.TMat.detach().cpu().numpy().sum(axis = 2).transpose(0, 2, 1)
+        rho, err = self.optimize_rho(self.Y, self.M, self.A, self.TMat.detach().cpu().numpy(), self.pStart_ya_emp, rho0, maxiter, th = th)
 
-        if method is None:
-            method = 'trust-ncg'
-
-        if hess is None:
-            hess = '2-point'
+        self.rho = torch.tensor(rho.astype(np.float32), device = self.device)
         
-        res = scipy.optimize.minimize(fun.fun_MSE, psi0, args = (wVec, self.pStart_ya_emp),
-                                      jac = fun.jac_MSE, method=method,
-                                      hess = hess, options = {'maxiter': maxiter})
-        
-        self.psi = torch.tensor(res.x.astype(np.float32), device = self.device)
-
-        self.rho = nn.Softmax(dim = 0)(self.psi)
         self.trained = True
 
-        return res.fun
-
+        return err
 
     def load_theta(self, theta):
         """
