@@ -70,3 +70,42 @@ def get_waiting_times(N, rate):
 
     return -np.log(1-x)/rate
 
+@nb.njit
+def SingleLinearRamps(NSteps, rate, mplus, mminus, dt, y0 = None, seed = None):
+    obs = np.zeros(NSteps, dtype = np.float32)
+
+    if seed is not None:
+        np.random.seed(seed)
+
+    if y0 is None:
+        y0 = np.random.rand()
+    
+    obs[0] = y0
+    current_m_idx = 0
+
+    mlist = [mplus, mminus]
+
+    for idx in range(1, NSteps):
+        if np.random.rand() < rate*dt:
+            current_m_idx = 1 - current_m_idx
+
+        obs[idx] = obs[idx-1] + mlist[current_m_idx]*dt
+
+        if obs[idx] < 0:
+            current_m_idx = 0
+            obs[idx] = obs[idx-1] + mlist[current_m_idx]*dt
+
+    return obs
+
+@nb.njit(parallel = True)
+def LinearRamps(NTraj, NSteps, rate, mplus, mminus, dt, initial_obs = None, initial_seed = None):
+    obs = np.zeros((NTraj, NSteps), dtype = np.float32)
+
+    for idx in nb.prange(NTraj):
+        if initial_seed is not None:
+            seed = initial_seed + idx
+        obs[idx] = SingleLinearRamps(NSteps, rate, mplus, mminus, dt, initial_obs, seed = seed)
+
+    return obs
+
+
