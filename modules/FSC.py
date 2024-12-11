@@ -172,7 +172,7 @@ class GenerationDiscreteObs():
                 if verbose:
                     print("No observations provided. Using the loaded observations and generating one trajectory per observation sequence.")
                 assert hasattr(self, "observations"), "No observations have been loaded. Load observations with the load_observations method."
-                assert NSteps <= self.min_obs_length, "NSteps must be smaller than the minimum observation length."
+                assert NSteps <= self.min_obs_length, "NSteps must be smaller than the shortest observation length."
                 NTraj = len(self.observations)
                 observations_cut = np.zeros((NTraj, NSteps), dtype = np.int32)
 
