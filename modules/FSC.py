@@ -1246,10 +1246,13 @@ class GenerationContinuousObs():
         # check if f is a single feature vector or a sequence of feature vectors
         if len(f.shape) == 1:
             W = np.einsum('fmna, f->mna', self.theta, f)
+            TA = fun.softmax(W, axis = (1, 2))
         else:
             W = np.einsum('fmna, fz->zmna', self.theta, f)
+            TA = fun.softmax(W, axis = (2, 3))
+            
 
-        return fun.softmax(W, axis = (1, 2))
+        return TA
     
 
     def evaluate_nloglikelihood(self, trajectory):
