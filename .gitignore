@@ -5,3 +5,11 @@ modules/__pycache__/fun.cpython-312.pyc
 modules/__pycache__/ObsModels.cpython-39.pyc
 modules/__pycache__/ObsModels.cpython-312.pyc
 data/data_filtered
+modules/__pycache__/FSC_DoubleGrad.cpython-312.pyc
+new_modules/__pycache__/FSC.cpython-312.pyc
+new_modules/__pycache__/ObsModels.cpython-312.pyc
+new_modules/__pycache__/utils.cpython-312.pyc
+new_modules/ContinuousObs/__pycache__/generation.cpython-312.pyc
+new_modules/ContinuousObs/__pycache__/inference.cpython-312.pyc
+new_modules/DiscreteObs/__pycache__/generation.cpython-312.pyc
+new_modules/DiscreteObs/__pycache__/inference.cpython-312.pyc

@@ -5,6 +5,9 @@ import utils
 from DiscreteObs.generation import GenerationDiscreteObs
 from DiscreteObs.inference import InferenceDiscreteObs
 
+from ContinuousObs.generation import GenerationContinuousObs
+from ContinuousObs.inference import InferenceContinuousObs
+
 class FSC:
     def __init__(self, obs_type, M, A, Y = None, F = None,
                  mode = 'inference',
@@ -34,13 +37,16 @@ class FSC:
 
         self.mode = mode
 
-        self.rho = utils.softmax(self.psi)
-        self.TMat = utils.softmax(self.theta, axis = (2, 3))
-
         if mode == 'generation':
-            self.generator = GenerationDiscreteObs(self)
+            if self.__obs_type == 'discrete':
+                self.generator = GenerationDiscreteObs(self)
+            else:
+                self.generator = GenerationContinuousObs(self)
         elif mode == 'inference':
-            self.inferencer = InferenceDiscreteObs(self)
+            if self.__obs_type == 'discrete':
+                self.inferencer = InferenceDiscreteObs(self)
+            else:
+                self.inferencer = InferenceContinuousObs(self)
         else:
             raise ValueError("Mode must be either 'generation' or 'inference'")
         
@@ -49,6 +55,23 @@ class FSC:
     @property
     def obs_type(self):
         return self.__obs_type
+    
+    @property
+    def rho(self):
+        return utils.softmax(self.psi)
+
+    @property
+    def TMats(self, f = None):
+        if self.__obs_type == 'discrete':
+            if f is None:
+                raise Warning("Features are not used in the transition model for discrete observations.")
+            return utils.softmax(self.theta, axis = (2, 3))
+        else:
+            if f is None:
+                raise ValueError("Features must be provided to compute the transition model for continuous observations.")
+            
+            W = np.einsum('fmna, f->mna', self.theta, f)
+            return utils.softmax(W, axis = (1, 2))
 
     def __initialize_structure(self, M, A, Y, F):
         self.M = M
@@ -96,14 +119,15 @@ class FSC:
             raise ValueError("psi must have shape (M,) where M is the number of states.")
         
     def __initialize_spaces(self, ObsSpace, ActSpace, MemSpace):
-        if ObsSpace is not None:
-            if len(ObsSpace) != self.Y:
-                raise ValueError("The number of observations in ObsSpace must match the number of observations.")
-            self.ObsSpace = np.array(ObsSpace)
-            self.custom_obs_space = True
-        else:
-            self.ObsSpace = np.arange(self.Y)
-            self.custom_obs_space = False
+        if self.__obs_type == 'discrete':
+            if ObsSpace is not None:
+                if len(ObsSpace) != self.Y:
+                    raise ValueError("The number of observations in ObsSpace must match the number of observations.")
+                self.ObsSpace = np.array(ObsSpace)
+                self.custom_obs_space = True
+            else:
+                self.ObsSpace = np.arange(self.Y)
+                self.custom_obs_space = False
 
         if ActSpace is not None:
             if len(ActSpace) != self.A:
@@ -132,16 +156,36 @@ class FSC:
             obs_original_space = np.array([self.ObsSpace[o.item()] for o in obs])
             self._fitted_observations_numpy.append(obs_original_space)
 
+    def convert_features_to_numpy(self):
+        if not self.__loaded_trajectories_inference:
+            raise ValueError("No trajectories to fit have been loaded.")
+        
+        self._fitted_features_numpy = []
+        for features, _ in self.inferencer.FeatAct_trajectories:
+            self._fitted_features_numpy.append(features.detach().cpu().numpy())
+
     def set_mode(self, mode):
         self.mode = mode
         if mode == 'generation':
-            self.convert_observations_to_numpy()
+            if self.__obs_type == 'discrete':
+                self.convert_observations_to_numpy()
 
-            self.generator = GenerationDiscreteObs(self)
-            if hasattr(self, '_fitted_observations_numpy'):
-                self.generator.load_observations(self._fitted_observations_numpy)
+                self.generator = GenerationDiscreteObs(self)
+                if hasattr(self, '_fitted_observations_numpy'):
+                    self.generator.load_observations(self._fitted_observations_numpy)
+            else:
+                self.convert_features_to_numpy()
+
+                self.generator = GenerationContinuousObs(self)
+                if hasattr(self, '_fitted_features_numpy'):
+                    self.generator.load_features(self._fitted_features_numpy)
         elif mode == 'inference':
-            self.inferencer = InferenceDiscreteObs(self)
+            if self.__obs_type == 'discrete':
+                self.inferencer = InferenceDiscreteObs(self)
+
+            else:
+                self.inferencer = InferenceContinuousObs(self)
+
 
     def load_trajectories_tofit(self, trajectories):
         if self.mode != 'inference':
@@ -154,24 +198,33 @@ class FSC:
         if not self.__loaded_trajectories_inference:
             raise ValueError("No trajectories to fit have been loaded.")
 
-        return self.inferencer.ObsAct_trajectories
+        if self.__obs_type == 'discrete':
+            return self.inferencer.ObsAct_trajectories
+        else:
+            return self.inferencer.FeatAct_trajectories
 
     def compute_loss(self):
         nLL = 0.0
 
         if self.mode == 'inference':
-            for idx in range(len(self.inferencer.ObsAct_trajectories)):
-                nLL += self.inferencer.evaluate_nloglikelihood(idx)
+            if self.__obs_type == 'discrete':
+                for idx in range(len(self.inferencer.ObsAct_trajectories)):
+                    nLL += self.inferencer.evaluate_nloglikelihood(idx)
 
-            nLL /= len(self.inferencer.ObsAct_trajectories)
+                nLL /= len(self.inferencer.ObsAct_trajectories)
+            else:
+                for idx in range(len(self.inferencer.FeatAct_trajectories)):
+                    nLL += self.inferencer.evaluate_nloglikelihood(idx)
+
+                nLL /= len(self.inferencer.FeatAct_trajectories)
 
         else:
             raise ValueError("Loss cannot be computed in generation mode. Set mode to 'inference' to compute the loss.")
         
         return
 
-    def optimize_parameters(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
-                            maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True):
+    def optimize_parameters_discrete(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
+                                     maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True):
         if self.mode != 'inference':
             raise ValueError("Mode must be 'inference' to optimize parameters.")
         if not self.__loaded_trajectories_inference:
@@ -179,6 +232,28 @@ class FSC:
 
         losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose,
                                                             maxiter, rho0, th, c_gauge)
+
+        if overwrite:
+            self.theta = self.inferencer.theta.detach().cpu().numpy()
+            self.psi = self.inferencer.psi.detach().cpu().numpy()
+
+        return losses_train, losses_val
+    
+    def optimize_parameters_continuous(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
+                                       overwrite=True):
+        if self.mode != 'inference':
+            raise ValueError("Mode must be 'inference' to optimize parameters.")
+        if not self.__loaded_trajectories_inference:
+            raise ValueError("No trajectories to fit have been loaded.")
+        
+        # check if lr is a number or a tuple
+        if isinstance(lr, tuple):
+            lr_theta, lr_psi = lr
+        else:
+            lr_theta = lr
+            lr_psi = lr
+        
+        losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, gamma, verbose)
 
         if overwrite:
             self.theta = self.inferencer.theta.detach().cpu().numpy()
@@ -210,10 +285,14 @@ class FSC:
         self.initialize_for_inference()
         
         self.load_trajectories_tofit(trajectories)
-
+        
         self.__check_ready_for_inference()
         
-        return self.optimize_parameters(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, maxiter, rho0, th, c_gauge, overwrite)
+        if self.__obs_type == 'discrete':
+            return self.optimize_parameters_discrete(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, maxiter, rho0, th, c_gauge, overwrite)
+        else:
+            return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, overwrite)
+
 
     def __check_ready_for_inference(self):
         if self.mode != 'inference':
@@ -226,7 +305,18 @@ class FSC:
     def load_observations(self, observations):
         if self.mode != 'generation':
             raise ValueError("Mode must be 'generation' to load observations.")
+        if self.__obs_type == 'continuous':
+            raise ValueError("Observations can only be loaded for discrete observation. Use load_features instead.")
+
         self.generator.load_observations(observations)
+
+    def load_features(self, features):
+        if self.mode != 'generation':
+            raise ValueError("Mode must be 'generation' to load features.")
+        if self.__obs_type == 'discrete':
+            raise ValueError("Features can only be loaded for continuous observation. Use load_observations instead.")
+
+        self.generator.load_features(features)
 
     def generate_single_trajectory(self, NSteps, observations=None, idx_observation=None):
         if self.mode != 'generation':

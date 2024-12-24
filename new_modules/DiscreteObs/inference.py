@@ -3,7 +3,6 @@ from torch import nn
 import numpy as np
 import numba as nb
 import random
-import scipy
 
 import utils
 
