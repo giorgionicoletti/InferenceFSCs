@@ -327,3 +327,19 @@ class FSC:
         if self.mode != 'generation':
             raise ValueError("Mode must be 'generation' to generate trajectories.")
         return self.generator.generate_trajectories(NSteps, observations, idx_observation, NTraj, verbose)
+
+    def load_parameters(self, theta, psi):
+
+        self.__check_parameters_consistency(theta, psi)
+
+        if self.mode == 'inference':
+            self.mode = 'generation'
+            raise Warning("Mode has been changed to 'generation' to load parameters. Please set mode to 'inference' to optimize parameters.")
+        
+        if isinstance(theta, torch.Tensor):
+            theta = theta.detach().cpu().numpy()
+        if isinstance(psi, torch.Tensor):
+            psi = psi.detach().cpu().numpy()
+
+        self.theta = theta
+        self.psi = psi
