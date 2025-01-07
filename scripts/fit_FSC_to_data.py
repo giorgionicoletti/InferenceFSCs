@@ -2,13 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import sys
-sys.path.append('../../new_modules')
+sys.path.append('../new_modules')
 
 import FSC as controller
 import torch
 import copy
 
 import pandas as pd
+import time as measure_time
 
 path = "../data/data_filtered"
 df = pd.read_csv(path)
@@ -76,10 +77,11 @@ gamma = 0.99
 train_split = 0.9
 
 for seed in seeds:
+    tic = measure_time.time()
     FSC_tofit = controller.FSC("continuous", M = M, A = A, F = F, seed = seed)
 
     tloss, vloss = FSC_tofit.fit(trajectories, NEpochs = NEpochs,
-                                 NBatch = NBatch, lr = lr, gamma = gamma)
+                                 NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
     par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories)}_MinTrLen{MinTrLen}_MaxTrLen{MaxTrLen}_InitSkip{InitSkip}_"
 
@@ -98,3 +100,7 @@ for seed in seeds:
 
     # use npz format to save the parameters
     np.savez(par_names + "parameters.npz", **parameters)
+    toc = measure_time.time()
+
+    print(f"Seed {seed} done in {toc - tic} seconds")
+    print()
