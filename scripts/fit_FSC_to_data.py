@@ -64,8 +64,8 @@ print("Number of trajectories: ", len(trajectories))
 print("Number of tumbling at the beginning: ", np.sum(first_action))
 print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories) * 100, 2), "%")
 
-N_FSC = 20
-seeds = np.arange(N_FSC)
+N_FSC = 35
+seeds = np.arange(14, N_FSC)
 F = 2
 M = 2
 A = 2
