@@ -7,6 +7,7 @@ from DiscreteObs.inference import InferenceDiscreteObs
 
 from ContinuousObs.generation import GenerationContinuousObs
 from ContinuousObs.inference import InferenceContinuousObs
+import warnings
 
 class FSC:
     def __init__(self, obs_type, M, A, Y = None, F = None,
@@ -60,18 +61,22 @@ class FSC:
     def rho(self):
         return utils.softmax(self.psi)
 
-    @property
-    def TMats(self, f = None):
+    def get_TMat(self, f = None):
         if self.__obs_type == 'discrete':
-            if f is None:
+            if f is not None:
                 raise Warning("Features are not used in the transition model for discrete observations.")
-            return utils.softmax(self.theta, axis = (2, 3))
-        else:
+            if self.mode == 'generation':
+                return self.generator.get_TMat()
+            elif self.mode == 'inference':
+                return self.inferencer.get_TMat()
+        elif self.__obs_type == 'continuous':
             if f is None:
                 raise ValueError("Features must be provided to compute the transition model for continuous observations.")
             
-            W = np.einsum('fmna, f->mna', self.theta, f)
-            return utils.softmax(W, axis = (1, 2))
+            if self.mode == 'generation':
+                return self.generator.get_TMat(f)
+            elif self.mode == 'inference':
+                return self.inferencer.get_TMat(f)
 
     def __initialize_structure(self, M, A, Y, F):
         self.M = M
@@ -203,25 +208,22 @@ class FSC:
         else:
             return self.inferencer.FeatAct_trajectories
 
-    def compute_loss(self):
+    def compute_loss(self, trajectories):
         nLL = 0.0
 
         if self.mode == 'inference':
-            if self.__obs_type == 'discrete':
-                for idx in range(len(self.inferencer.ObsAct_trajectories)):
-                    nLL += self.inferencer.evaluate_nloglikelihood(idx)
+            for trj in trajectories:
+                features = trj["features"]
+                actions = trj["actions"]
 
-                nLL /= len(self.inferencer.ObsAct_trajectories)
-            else:
-                for idx in range(len(self.inferencer.FeatAct_trajectories)):
-                    nLL += self.inferencer.evaluate_nloglikelihood(idx)
-
-                nLL /= len(self.inferencer.FeatAct_trajectories)
-
+                nLL += self.inferencer.loss(features, actions, grad_required=False)
         else:
-            raise ValueError("Loss cannot be computed in generation mode. Set mode to 'inference' to compute the loss.")
-        
-        return
+            for trj in trajectories:
+                nLL += self.generator.evaluate_nloglikelihood(trj)
+
+            nLL /= len(trajectories)
+
+        return nLL
 
     def optimize_parameters_discrete(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
                                      maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True):
@@ -333,13 +335,15 @@ class FSC:
         self.__check_parameters_consistency(theta, psi)
 
         if self.mode == 'inference':
-            self.mode = 'generation'
-            raise Warning("Mode has been changed to 'generation' to load parameters. Please set mode to 'inference' to optimize parameters.")
-        
-        if isinstance(theta, torch.Tensor):
-            theta = theta.detach().cpu().numpy()
-        if isinstance(psi, torch.Tensor):
-            psi = psi.detach().cpu().numpy()
+            if isinstance(theta, np.ndarray):
+                theta = torch.tensor(theta, dtype=torch.float32)
+            if isinstance(psi, np.ndarray):
+                psi = torch.tensor(psi, dtype=torch.float32)
+        elif self.mode == 'generation':
+            if isinstance(theta, torch.Tensor):
+                theta = theta.detach().cpu().numpy().astype(np.float64)
+            if isinstance(psi, torch.Tensor):
+                psi = psi.detach().cpu().numpy().astype(np.float64)
 
         self.theta = theta
         self.psi = psi

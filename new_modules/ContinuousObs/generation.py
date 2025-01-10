@@ -255,12 +255,12 @@ class GenerationContinuousObs:
 
         return fig, ax
     
-    def compute_TMat(self, theta, f):
+    def get_TMat(self, f):
         if len(f.shape) == 1:
-            W = np.einsum('fmna, f->mna', theta, f)
+            W = np.einsum('fmna, f->mna', self.FSC.theta, f)
             TA = utils.softmax(W, axis = (1, 2))
         else:
-            W = np.einsum('fmna, fz->zmna', theta, f)
+            W = np.einsum('fmna, fz->zmna',self.FSC.theta, f)
             TA = utils.softmax(W, axis = (2, 3))
 
         return TA
