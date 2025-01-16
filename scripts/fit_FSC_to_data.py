@@ -47,7 +47,7 @@ for cell_idx in cell_indexes:
             frames.append(cfra[i:i+NewTrLen])
             observations.append(cobs[i:i+NewTrLen])
 
-NTrajInit = 0
+NTrajInit = 1000
 NTraj = 1000
 trajectories = []
 
