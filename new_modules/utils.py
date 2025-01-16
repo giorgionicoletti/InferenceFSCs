@@ -1,6 +1,9 @@
 import numpy as np
 import numba as nb
 
+import networkx as nx
+import matplotlib.pyplot as plt
+
 import torch
 
 def softmax(x, axis = 0):
@@ -79,3 +82,158 @@ def combine_spaces(space1, space2):
         Combined space, with shape (space1.size * space2.size, 2).
     """
     return np.array(np.meshgrid(space1, space2)).T.reshape(-1, 2)
+
+def plot_FSC_network(ax, piprob, pitilde_prob,
+                     memory1_color='gray', memory2_color='gray',
+                     action_r_color='lightblue', action_t_color='salmon',
+                     title=""):
+    
+    # Create a directed graph
+    G = nx.DiGraph()
+    
+    # Add memory nodes
+    G.add_node('$M_1$', shape='o', color=memory1_color)
+    G.add_node('$M_2$', shape='o', color=memory2_color)
+    
+    # Add action nodes
+    G.add_node('R1', shape='s', color=action_r_color)
+    G.add_node('T1', shape='s', color=action_t_color)
+    G.add_node('R2', shape='s', color=action_r_color)
+    G.add_node('T2', shape='s', color=action_t_color)
+    
+    # Add edges from memory nodes to action nodes
+    G.add_edges_from([('$M_1$', 'R1'), ('$M_1$', 'T1'),
+                      ('$M_2$', 'R2'), ('$M_2$', 'T2')])
+    
+    # Add edges from action nodes to memory nodes
+    G.add_edges_from([('R1', '$M_1$'), ('R1', '$M_2$'),
+                      ('T1', '$M_1$'), ('T1', '$M_2$'),
+                      ('R2', '$M_1$'), ('R2', '$M_2$'),
+                      ('T2', '$M_1$'), ('T2', '$M_2$')])
+    
+    # Define node shapes
+    node_shapes = {'o': 'o', 's': 's'}
+    
+    # Define custom labels for plotting
+    labels = {'$M_1$': '$M_1$', '$M_2$': '$M_2$', 'R1': 'R', 'T1': 'T', 'R2': 'R', 'T2': 'T'}
+    
+    # Define positions for the nodes
+    pos = {
+        '$M_1$': (0, 0),
+        'R1': (0.2, 1),
+        'T1': (0.2, -1),
+        '$M_2$': (2, 0),
+        'R2': (1.8, 1),
+        'T2': (1.8, -1)
+    }
+
+    ax.axis('off')
+    
+    # Draw the graph
+    for shape in node_shapes:
+        nodes = [n for n in G.nodes if G.nodes[n]['shape'] == shape]
+        colors = [G.nodes[n]['color'] for n in nodes]
+        node_size = 2000 if shape == 'o' else 400  # Larger size for memory nodes, smaller for action nodes
+        nx.draw_networkx_nodes(G, pos, nodelist=nodes, node_shape=node_shapes[shape],
+                               node_size=node_size, node_color=colors, ax=ax)
+    
+    # Draw edges with arrows and curved connections
+    memory_to_action_edges_left = [('$M_2$', 'R2', piprob[1, 0]), ('$M_1$', 'T1', piprob[0, 1])]
+    memory_to_action_edges_right = [('$M_1$', 'R1', piprob[0, 0]), ('$M_2$', 'T2', piprob[1, 1])]
+    memory_to_action_edges = [memory_to_action_edges_left, memory_to_action_edges_right]
+
+    action_to_memory_stay_edges_1 = [('R1', '$M_1$', pitilde_prob[0, 0, 0]), ('T2', '$M_2$', pitilde_prob[1, 1, 1])]
+    action_to_memory_stay_edges_2 = [('R2', '$M_2$', pitilde_prob[1, 1, 0]), ('T1', '$M_1$', pitilde_prob[0, 0, 1])]
+
+    action_to_memory_stay_edges = [action_to_memory_stay_edges_1, action_to_memory_stay_edges_2]
+
+    action_to_memory_edges = [('R1', '$M_2$', pitilde_prob[0, 1, 0]), ('T1', '$M_2$', pitilde_prob[0, 1, 1]),
+                              ('R2', '$M_1$', pitilde_prob[1, 0, 0]), ('T2', '$M_1$', pitilde_prob[1, 0, 1])]
+    
+    # Draw edges with different colors and connection styles
+
+    xshifts = {'$M_1$': -0.33, '$M_2$': 0.18}
+    pscale = 5
+    rads = [0.5, -0.5]
+
+    for i in range(len(memory_to_action_edges)):
+        for j, (u, v, prob) in enumerate(memory_to_action_edges[i]):
+            width = prob * pscale
+
+            nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], connectionstyle=f'arc3,rad={rads[i]}', width=width,
+                                arrows=True, arrowsize=20, min_source_margin=25, min_target_margin=15, edge_color='gray', ax=ax)
+            
+            x = (pos[u][0] + pos[v][0]) / 2 + xshifts[u]
+            y = (pos[u][1] + pos[v][1]) / 2
+            ax.text(x, y, f'{prob:.3f}', fontsize=10, color='gray')
+
+    rads = [-0.2, 0.2]
+    xshifts = {'R1': 0.1, 'T1': 0.08, 'R2': -0.27, 'T2': -0.25}
+    yshifts = {'R1': 0.08, 'T1': -0., 'R2': 0., 'T2': -0.15}
+    colors = {'R1': 'lightblue', 'T1': 'salmon', 'R2': 'lightblue', 'T2': 'salmon'}
+
+    for i in range(len(action_to_memory_stay_edges)):
+        for j, (u, v, prob) in enumerate(action_to_memory_stay_edges[i]):
+            width = prob * pscale
+
+            nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], connectionstyle=f'arc3,rad={rads[i]}', width=width,
+                                   arrows=True, arrowsize=20, min_source_margin=15, min_target_margin=25, edge_color=colors[u], ax=ax)
+            
+            x = (pos[u][0] + pos[v][0]) / 2 + xshifts[u]
+            y = (pos[u][1] + pos[v][1]) / 2 + yshifts[u]
+            ax.text(x, y, f'{prob:.3f}', fontsize=10, color=colors[u])
+
+    xshifts = {'R1': 0., 'T1': -0.5, 'R2': -0.27, 'T2': -0.3}
+    yshifts = {'R1': -0.35, 'T1': -0.45, 'R2': 0.45, 'T2': 0.58}
+
+    for i, (u, v, prob) in enumerate(action_to_memory_edges):
+        width = prob * pscale
+
+        nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], connectionstyle='arc3,rad=0.2', width=width,
+                               arrows=True, arrowsize=20, min_source_margin=15, min_target_margin=25, edge_color=colors[u], ax=ax)
+        
+        x = (pos[u][0] + pos[v][0]) / 2 + xshifts[u]
+        y = (pos[u][1] + pos[v][1]) / 2 + yshifts[u]
+
+        ax.text(x, y, f'{prob:.3f}', fontsize=10, color=colors[u])
+    
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, labels=labels, font_size=12, font_color='white', ax=ax)
+    
+    # Add title
+    ax.set_title(title)
+
+    cut = 1.1
+    xmax= cut*max(xx for xx,yy in pos.values())
+    ax.set_xlim(-0.2,xmax)
+
+
+def extract_durations(trajectory):
+    durations = []
+
+    current_value = trajectory[0]
+    current_duration = 0
+
+    for value in trajectory:
+        if value == current_value:
+            current_duration += 1
+        else:
+            durations.append((current_value, current_duration))
+            current_value = value
+            current_duration = 1
+
+    durations.append((current_value, current_duration))
+    return durations
+
+def filter_durations(durations, target_value):
+    return np.array([duration for value, duration in durations if value == target_value])
+
+
+def get_cumulative(data):
+    values, counts = np.unique(data, return_counts=True)
+    cumulative = np.cumsum(counts)
+    cumulative = cumulative / cumulative[-1]  # Normalize the cumulative values
+    return values, cumulative
+
+def expcum_fit(x, a):
+    return 1 - np.exp(-a * x)

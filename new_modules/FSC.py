@@ -9,6 +9,10 @@ from ContinuousObs.generation import GenerationContinuousObs
 from ContinuousObs.inference import InferenceContinuousObs
 import warnings
 
+import matplotlib.pyplot as plt
+
+from scipy.optimize import curve_fit
+
 class FSC:
     def __init__(self, obs_type, M, A, Y = None, F = None,
                  mode = 'inference',
@@ -351,3 +355,162 @@ class FSC:
 
         self.theta = theta
         self.psi = psi
+
+
+    def plot_FSC(self, features = None, ax = None, figsize = None,
+                 memory1_color='gray', memory2_color='gray',
+                 action_r_color='lightblue', action_t_color='salmon',
+                 title=""):
+        if self.M != 2 and self.A != 2:
+            raise ValueError("Plotting is only supported for FSCs with 2 memory states and 2 actions.")
+        
+        if features is None and self.__obs_type == 'continuous':
+            raise ValueError("Features must be provided to plot the FSC for continuous observations.")
+        
+        TMat = self.get_TMat(features)
+        pi_prob = TMat.sum(axis = 1)
+        pitilde_prob = TMat / pi_prob[:, None, :]
+
+        joint = pi_prob*np.ones(self.M)[..., None]/self.M
+        pA = np.sum(joint, axis = 0)
+        pM = np.sum(joint, axis = 1)
+
+        log_arg = joint / (pA[None, :] * pM[:, None])
+        MI_memact = np.sum(joint * np.log2(log_arg))
+        
+        if ax is None:
+            if figsize is None:
+                figsize = (5, 3)
+            fig, ax = plt.subplots(1, 1, figsize = figsize)
+
+        utils.plot_FSC_network(ax, pi_prob, pitilde_prob,
+                               memory1_color, memory2_color,
+                               action_r_color, action_t_color,
+                               title)
+        
+        if ax is None:
+            return fig, ax
+
+    def plot_dashboard_M2A2(self, feature_array, trajectories,
+                            run_exponent = None, bins_tumble_dur = None, h_tumble_dur = None,
+                            nLL = None, title = "", return_results = False,
+                            memory1_color='gray', memory2_color='gray',
+                            action_r_color='lightblue', action_t_color='salmon'):
+        if len(feature_array) != 2:
+            raise ValueError("Dashboard only plots the topology of the FSC for 2 features.")
+        
+        
+        if run_exponent == None:
+            run_durations = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 0)[1:-1] for tr in trajectories])
+
+            run_values, run_cumulative = utils.get_cumulative(run_durations)
+            run_params, _ = curve_fit(utils.expcum_fit, run_values, run_cumulative, p0=[0.01])
+            run_exponent = run_params[0]
+
+        if h_tumble_dur is None or bins_tumble_dur is None:
+            tumble_durations = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 1)[1:-1] for tr in trajectories])
+
+            h_tumble_dur, bins_tumble_dur = np.histogram(tumble_durations, bins=np.arange(1, 5), density=True)
+            bins_tumble_dur = bins_tumble_dur[:-1]
+
+        if nLL is None:            
+            nLL = self.compute_loss(trajectories)
+
+
+        generated_tr = self.generate_trajectories(features = [tr["features"] for tr in trajectories])
+        run_durations_gen = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 0)[1:-1] for tr in generated_tr])
+        tumble_durations_gen = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 1)[1:-1] for tr in generated_tr])
+        memory1_durations_gen = np.concatenate([utils.filter_durations(utils.extract_durations(tr["memories"]), 0)[1:-1] for tr in generated_tr])
+        memory2_durations_gen = np.concatenate([utils.filter_durations(utils.extract_durations(tr["memories"]), 1)[1:-1] for tr in generated_tr])
+        memory1_occupacy = np.mean([np.sum(tr["memories"] == 0)/len(tr["memories"]) for tr in generated_tr])
+        memory2_occupacy = np.mean([np.sum(tr["memories"] == 1)/len(tr["memories"]) for tr in generated_tr])
+
+        h_run_dur_gen, bins_run_dur_gen = np.histogram(run_durations_gen, bins=50, density=True)
+        bins_run_dur_gen = (bins_run_dur_gen[1:] + bins_run_dur_gen[:-1]) / 2
+
+        h_tumb_dur_gen, bins_tumb_dur_gen = np.histogram(tumble_durations_gen, bins=np.arange(1, 5), density=True)
+        bins_tumb_dur_gen = bins_tumb_dur_gen[:-1]
+
+        h_mem1_dur_gen, bins_mem1_dur_gen = np.histogram(memory1_durations_gen, density=True)
+        bins_mem1_dur_gen = (bins_mem1_dur_gen[1:] + bins_mem1_dur_gen[:-1]) / 2
+        h_mem2_dur_gen, bins_mem2_dur_gen = np.histogram(memory2_durations_gen, density=True)
+        bins_mem2_dur_gen = (bins_mem2_dur_gen[1:] + bins_mem2_dur_gen[:-1]) / 2
+
+
+
+
+        fig, axs = plt.subplot_mosaic([["FSC1", "FSC1", "FSC2", "FSC2", "rho"],
+                                       ["run_dist", "run_dist", "tumbl_dist", "memory_dist1", "memory_occ"],
+                                       ["run_dist", "run_dist", "tumbl_dist", "memory_dist2", "memory_occ"]],
+                                       figsize=(20, 7.5),
+                                       gridspec_kw={'width_ratios': [1, 1, 1, 1, 1],
+                                                    'height_ratios': [1.2, 0.5, 0.5]})
+        
+        for idx_y in range(feature_array.shape[1]):
+            self.plot_FSC(features=feature_array[:, idx_y], ax=axs[f"FSC{idx_y+1}"],
+                          title = f"FSC for $y = {np.round(feature_array[1][idx_y], 3)}$",
+                          memory1_color=memory1_color, memory2_color=memory2_color,
+                          action_r_color=action_r_color, action_t_color=action_t_color)
+        if title == "":
+            overall_title = f"Loss: {np.round(nLL, 4)}"
+        else:
+            overall_title = title + f" - Loss: {np.round(nLL, 4)}"
+        fig.suptitle(overall_title, fontsize=12)
+
+
+        axs["rho"].bar(np.arange(self.M), self.rho, color=[memory1_color, memory2_color], alpha = 0.5)
+        axs["rho"].set_ylabel("Probability")
+        axs["rho"].set_xticks(np.arange(self.M))
+        axs["rho"].set_xticklabels([f"$M_{i+1}$" for i in range(self.M)])
+        axs["rho"].set_yticks(np.arange(0, 1.1, 0.1))
+        axs["rho"].title.set_text("Initial memory distribution")
+        # add the value over each bar
+        for i, val in enumerate(self.rho):
+            axs["rho"].text(i, val + 0.01, f"{val:.2f}", ha='center')
+
+        axs["run_dist"].bar(bins_run_dur_gen, h_run_dur_gen, width=np.diff(bins_run_dur_gen)[0], label="Generated",
+                    color = 'lightblue', alpha = 0.8, lw = 1, edgecolor = 'w')
+        axs["run_dist"].plot(bins_run_dur_gen, run_exponent * np.exp(-run_exponent * bins_run_dur_gen),
+                                label=f"Data exponential fit, $\\tau = {np.round(1/run_exponent, 2)}$ fr", ls="--", color = 'black')
+        axs["run_dist"].set_yscale('log')
+        axs["run_dist"].set_xlabel("Run duration (frames)")
+        axs["run_dist"].set_ylabel("Probability density")
+        axs["run_dist"].legend()
+
+        axs["tumbl_dist"].bar(bins_tumb_dur_gen, h_tumb_dur_gen, width=np.diff(bins_tumb_dur_gen)[0], label="Generated",
+                        color = 'salmon', alpha = 0.8, lw = 1, edgecolor = 'w')
+        axs["tumbl_dist"].scatter(bins_tumble_dur, h_tumble_dur, color = 'k', label="Data", s = 50)
+        axs["tumbl_dist"].set_yscale('log')
+        axs["tumbl_dist"].set_xlabel("Tumble duration (frames)")
+        axs["tumbl_dist"].set_ylabel("Probability density")
+        axs["tumbl_dist"].legend()
+
+        axs["memory_dist1"].bar(bins_mem1_dur_gen, h_mem1_dur_gen, width=np.diff(bins_mem1_dur_gen)[0], label="Generated",
+                        color = 'gray', alpha = 0.8, lw = 0.5, edgecolor = 'w')
+        axs["memory_dist1"].set_yscale('log')
+        axs["memory_dist1"].set_xlabel("$M_1$ duration (frames)")
+        axs["memory_dist1"].set_ylabel("Probability density")
+
+        axs["memory_dist2"].bar(bins_mem2_dur_gen, h_mem2_dur_gen, width=np.diff(bins_mem2_dur_gen)[0], label="Generated",
+                                color = 'gray', alpha = 0.8, lw = 0.5, edgecolor = 'w')
+        axs["memory_dist2"].set_yscale('log')
+        axs["memory_dist2"].set_xlabel("$M_2$ duration (frames)")
+        axs["memory_dist2"].set_ylabel("Probability density")
+
+        axs["memory_occ"].bar(np.arange(self.M), [memory1_occupacy,  memory2_occupacy], color='gray', alpha = 0.5)
+        axs["memory_occ"].set_ylabel("Memory occupacy ($p(M)$)")
+        axs["memory_occ"].set_xticks(np.arange(self.M))
+        axs["memory_occ"].set_xticklabels([f"$M_{i+1}$" for i in range(self.M)])
+        axs["memory_occ"].set_yticks(np.arange(0, 1.1, 0.1))
+        for i, val in enumerate([memory1_occupacy,  memory2_occupacy]):
+            axs["memory_occ"].text(i, val + 0.01, f"{np.round(val, 2)}", ha='center')
+
+        plt.subplots_adjust(wspace=0.5, hspace = 0.4)
+        plt.show()
+
+        if return_results:
+            results = {"run_durations_gen": run_durations_gen, "tumble_durations_gen": tumble_durations_gen,
+                       "memory1_durations_gen": memory1_durations_gen, "memory2_durations_gen": memory2_durations_gen,
+                       "memory1_occupacy": memory1_occupacy, "memory2_occupacy": memory2_occupacy,
+                       "nLL": nLL}
+            return results
