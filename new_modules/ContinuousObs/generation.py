@@ -82,13 +82,13 @@ class GenerationContinuousObs:
         sequence by providing the idx_feature parameter and setting the NTraj parameter.
 
         In any case, the number of steps NSteps must be smaller or equal than the number of features in the provided
-        feature sequence.
+        feature sequence. If NSteps is None, the function will use the length of each feature sequence.
 
         Note that the trajectories are not stored in the object, but returned as a list of dictionaries.
 
         Parameters:
-        --- NSteps: int
-            Number of steps for the trajectory.
+        --- NSteps: int or None
+            Number of steps for the trajectory. If None, the function uses the length of each feature sequence.
         --- features: list of np.arrays (default = None)
             List of feature sequences. If None, the method uses the loaded features.
         --- idx_feature: int (default = None)
@@ -104,51 +104,64 @@ class GenerationContinuousObs:
         """
         features_cut = []
 
-        if features is None:
-            if idx_feature is None:
+        if NSteps is None:
+            if features is None:
+                if not hasattr(self, "features"):
+                    raise ValueError("No features have been loaded or provided.")
+                features = self.features
+            feat_lengths = [feat.shape[1] for feat in features]
+            features_cut = [feat[:, :length] for feat, length in zip(features, feat_lengths)]
+            NTraj = len(features)
+        else:
+            if features is None:
+                if idx_feature is None:
+                    if verbose:
+                        print("No features provided. Using the loaded features and generating one trajectory per feature sequence.")
+                    assert hasattr(self, "features"), "No features have been loaded. Load features with the load_features method."
+                    assert NSteps <= self.min_features_length, "NSteps must be smaller than the shortest feature length."
+                    NTraj = len(self.features)
+                    
+                    for n in range(NTraj):
+                        features_cut.append(self.features[n][:, :NSteps])
+
+                else:
+                    if verbose:
+                        print("No features provided. Using the indexed feature sequence and generating NTraj trajectories for the same feature sequence.")
+                    assert hasattr(self, "features"), "No features have been loaded. Load features with the load_features method."
+                    assert NSteps <= self.features[idx_feature].shape[1], "NSteps must be smaller or equal than the number of features."
+                    assert NTraj is not None, "If no features are provided, the NTraj parameter must be provided."
+
+                    for n in range(NTraj):
+                        features_cut.append(self.features[idx_feature][:, :NSteps])
+
+            elif type(features[0]) is np.ndarray:
                 if verbose:
-                    print("No features provided. Using the loaded features and generating one trajectory per feature sequence.")
-                assert hasattr(self, "features"), "No features have been loaded. Load features with the load_features method."
-                assert NSteps <= self.min_features_length, "NSteps must be smaller than the shortest feature length."
-                NTraj = len(self.features)
-                
-                for n in range(NTraj):
-                    features_cut.append(self.features[n][:, :NSteps])
+                    print("Multiple feature sequences provided. Generating one trajectory per feature sequence.")
+                feat_lengths = np.array([feat.shape[1] for feat in features])
+                assert np.all(feat_lengths >= NSteps), "All feature sequences must have at least NSteps features."
+
+                for n in range(len(features)):
+                    features_cut.append(features[n][:, :NSteps])
+
+                NTraj = len(features)
 
             else:
                 if verbose:
-                    print("No features provided. Using the indexed feature sequence and generating NTraj trajectories for the same feature sequence.")
-                assert hasattr(self, "features"), "No features have been loaded. Load features with the load_features method."
-                assert NSteps <= self.features[idx_feature].shape[1], "NSteps must be smaller or equal than the number of features."
-                assert NTraj is not None, "If no features are provided, the NTraj parameter must be provided."
+                    print("Single feature sequence provided. Generating NTraj trajectories for the same feature sequence.")
+                assert NSteps <= features.shape[1], "NSteps must be smaller or equal than the number of features."
+                assert NTraj is not None, "If features is a single array, the NTraj parameter must be provided."
 
                 for n in range(NTraj):
-                    features_cut.append(self.features[idx_feature][:, :NSteps])
+                    features_cut.append(features[:, :NSteps])
 
-        elif type(features[0]) is np.ndarray:
-            if verbose:
-                print("Multiple feature sequences provided. Generating one trajectory per feature sequence.")
-            feat_lengths = np.array([feat.shape[1] for feat in features])
-            assert np.all(feat_lengths >= NSteps), "All feature sequences must have at least NSteps features."
-
-            for n in range(len(features)):
-                features_cut.append(features[n][:, :NSteps])
-
-            NTraj = len(features)
-
+        if NSteps is not None:
+            int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel(GenerationContinuousObs._nb_get_TMat,
+                                                                                                NTraj, NSteps, self.InternalActSpace, self.InternalMemActSpace,
+                                                                                                self.FSC.theta, self.rho, features_cut)
         else:
-            if verbose:
-                print("Single feature sequence provided. Generating NTraj trajectories for the same feature sequence.")
-            assert NSteps <= features.shape[1], "NSteps must be smaller or equal than the number of features."
-            assert NTraj is not None, "If features is a single array, the NTraj parameter must be provided."
-
-            for n in range(NTraj):
-                features_cut.append(features[:, :NSteps])
-
-        
-        int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel(GenerationContinuousObs._nb_get_TMat,
-                                                                                               NTraj, NSteps, self.InternalActSpace, self.InternalMemActSpace,
-                                                                                               self.FSC.theta, self.rho, features_cut)
+            int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel_nosteps(GenerationContinuousObs._nb_get_TMat,
+                                                                                                           feat_lengths, self.InternalActSpace, self.InternalMemActSpace,
+                                                                                                           self.FSC.theta, self.rho, features_cut)
         trajectories = []
 
         for n in range(NTraj):
@@ -325,6 +338,28 @@ class GenerationContinuousObs:
                 actions[n, t] = new_MA[1]
 
         return actions, memories
+    
+    @staticmethod
+    @nb.njit(parallel = True)
+    def _nb_generate_trajectories_parallel_nosteps(get_TMat_nb, NSteps_list, MSpace, MASpace, theta, rho, features):
+        actions = [np.zeros(NSteps, dtype = np.int32) for NSteps in NSteps_list]
+        memories = [np.zeros(NSteps, dtype = np.int32) for NSteps in NSteps_list]
+
+        NTraj = len(NSteps_list)
+
+        for n in nb.prange(NTraj):
+            initial_memory = utils.numba_random_choice(MSpace, rho)
+    
+            memories[n][0] = initial_memory
+            for t in range(0, NSteps_list[n]):
+                transition_probs = get_TMat_nb(theta, features[n][:, t])[memories[n][t]].flatten()
+                new_MA = utils.numba_random_choice(MASpace, transition_probs)
+                if t < NSteps_list[n] - 1:
+                    memories[n][t+1] = new_MA[0]
+                actions[n][t] = new_MA[1]
+
+        return actions, memories
+
     
 
     @staticmethod

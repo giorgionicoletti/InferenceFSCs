@@ -147,9 +147,21 @@ class InferenceContinuousObs:
         assert not self.trained, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
 
         if optimizer is not None:
-            self.optimizer = optimizer([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+            if lr_theta != lr_psi:
+                self.optimizer = optimizer([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+                single_lr = False
+            else:
+                lr = lr_theta
+                self.optimizer = optimizer([self.theta, self.psi], lr=lr)
+                single_lr = True
         else:
-            self.optimizer = torch.optim.Adam([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+            if lr_theta != lr_psi:
+                self.optimizer = torch.optim.Adam([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+                single_lr = False
+            else:
+                lr = lr_theta
+                self.optimizer = torch.optim.Adam([self.theta, self.psi], lr=lr)
+                single_lr = True
 
         scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
 
@@ -257,26 +269,6 @@ class InferenceContinuousObs:
         """
 
         return np.where(self.FSC.MemSpace == mem)[0][0]
-    # def load_theta(self, theta):
-    #     """
-    #     Loads a new set of parameters for the transition probabilities of the FSC.
-
-    #     Parameters:
-    #     --- theta: torch.tensor of shape (F, M, M, A)
-    #         New parameters for the transition probabilities.
-    #     """
-    #     self.theta = nn.Parameter(torch.tensor(theta, device=self.device))
-
-    # def load_psi(self, psi):
-    #     """
-    #     Loads a new set of parameters for the initial memory occupation of the FSC.
-
-    #     Parameters:
-    #     --- psi: torch.tensor of shape (M)
-    #         New parameters for the initial memory occupation.
-    #     """
-    #     self.psi = nn.Parameter(torch.tensor(psi, device=self.device))
-    #     self.rho = nn.Softmax(dim=0)(self.psi)
 
 
     def optimize_double(self, NEpochs, NBatch, lr_theta, lr_psi, train_split=0.8, optimizer=None, gamma=0.9, verbose=False):

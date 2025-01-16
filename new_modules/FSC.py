@@ -325,10 +325,14 @@ class FSC:
             raise ValueError("Mode must be 'generation' to generate a trajectory.")
         return self.generator.generate_single_trajectory(NSteps, observations, idx_observation)
 
-    def generate_trajectories(self, NSteps, observations=None, idx_observation=None, NTraj=None, verbose=False):
+    def generate_trajectories(self, NSteps = None, observations=None, idx_observation=None, NTraj=None, verbose=False,
+                              features=None, idx_feature=None):
         if self.mode != 'generation':
             raise ValueError("Mode must be 'generation' to generate trajectories.")
-        return self.generator.generate_trajectories(NSteps, observations, idx_observation, NTraj, verbose)
+        if self.__obs_type == 'continuous':
+            return self.generator.generate_trajectories(NSteps, features, idx_feature, NTraj, verbose)
+        elif self.__obs_type == 'discrete':
+            return self.generator.generate_trajectories(NSteps, observations, idx_observation, NTraj, verbose)
 
     def load_parameters(self, theta, psi):
 
