@@ -47,10 +47,11 @@ for cell_idx in cell_indexes:
             frames.append(cfra[i:i+NewTrLen])
             observations.append(cobs[i:i+NewTrLen])
 
+NTrajInit = 0
 NTraj = 1000
 trajectories = []
 
-for i in range(NTraj):
+for i in range(NTrajInit, NTrajInit + NTraj):
     dict_traj = {}
     dict_traj["actions"] = actions[i].astype(int)
     dict_traj["features"] = np.array([np.ones(observations[i].size).astype(np.float32), observations[i].astype(np.float32)])
@@ -64,8 +65,8 @@ print("Number of trajectories: ", len(trajectories))
 print("Number of tumbling at the beginning: ", np.sum(first_action))
 print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories) * 100, 2), "%")
 
-N_FSC = 35
-seeds = np.arange(14, N_FSC)
+N_FSC = 20
+seeds = np.arange(0, N_FSC)
 F = 2
 M = 2
 A = 2
@@ -83,7 +84,8 @@ for seed in seeds:
     tloss, vloss = FSC_tofit.fit(trajectories, NEpochs = NEpochs,
                                  NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
-    par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories)}_MinTrLen{MinTrLen}_MaxTrLen{MaxTrLen}_InitSkip{InitSkip}_"
+    par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories)}_NTrajInit{NTrajInit}_"
+    par_names += f"MinTrLen{MinTrLen}_MaxTrLen{MaxTrLen}_InitSkip{InitSkip}_"
 
     parameters = FSC_tofit.get_learned_parameters()
 
