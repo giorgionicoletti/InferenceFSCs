@@ -174,7 +174,11 @@ class InferenceContinuousObs:
         losses_train = []
         losses_val = []
 
-        print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories.")
+        if single_lr:
+            print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories. Using a single learning rate of {lr}.")
+        else:
+            print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories. Using learning rates {lr_theta} for theta and {lr_psi} for psi.")
+        
 
         for epoch in range(NEpochs):
             running_loss = 0.0
