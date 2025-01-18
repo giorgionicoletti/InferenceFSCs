@@ -42,6 +42,11 @@ print("Number of trajectories: ", len(trajectories_data))
 print("Number of tumbling at the beginning: ", np.sum(first_action))
 print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories_data) * 100, 2), "%")
 
+idx_run = 0
+
+# save the data
+np.savez(f"../data/model/trajectories_model_{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}.npz", trajectories_data = trajectories_data)
+
 N_FSC = 20
 seeds = np.arange(0, N_FSC)
 F = 2
@@ -61,7 +66,7 @@ for seed in seeds:
     tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs,
                                  NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
-    par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}_"
+    par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_run{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}_"
     par_names += f"seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories_data)}_"
 
     parameters = FSC_tofit.get_learned_parameters()
