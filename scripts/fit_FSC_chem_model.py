@@ -11,7 +11,7 @@ import time as measure_time
 
 NTraj = 250
 NSteps = 10000
-tau_sub = 50
+tau_sub = 100
 grad = 0.5
 ttumble = 0.1
 
@@ -42,7 +42,7 @@ print("Number of trajectories: ", len(trajectories_data))
 print("Number of tumbling at the beginning: ", np.sum(first_action))
 print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories_data) * 100, 2), "%")
 
-idx_run = 0
+idx_run = 1
 
 # save the data
 np.savez(f"../data/model/trajectories_model_{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}.npz", trajectories_data = trajectories_data)
@@ -54,10 +54,10 @@ M = 2
 A = 2
 
 NEpochs = 15
-NBatch = 50
+NBatch = 25
 lr = (0.05, 0.05)
 gamma = 0.99
-train_split = 0.9
+train_split = 0.8
 
 for seed in seeds:
     tic = measure_time.time()
