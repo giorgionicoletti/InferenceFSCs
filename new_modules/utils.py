@@ -235,5 +235,11 @@ def get_cumulative(data):
     cumulative = cumulative / cumulative[-1]  # Normalize the cumulative values
     return values, cumulative
 
+def get_inverse_cumulative(data):
+    values, counts = np.unique(data, return_counts=True)
+    cumulative = np.cumsum(counts[::-1])[::-1]
+    cumulative = cumulative / cumulative[0]  # Normalize the cumulative values
+    return values, cumulative
+
 def expcum_fit(x, a):
     return 1 - np.exp(-a * x)
