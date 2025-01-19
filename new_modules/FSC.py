@@ -428,7 +428,7 @@ class FSC:
         h_run_dur_gen, bins_run_dur_gen = np.histogram(run_durations_gen, bins=50, density=True)
         bins_run_dur_gen = (bins_run_dur_gen[1:] + bins_run_dur_gen[:-1]) / 2
 
-        h_tumb_dur_gen, bins_tumb_dur_gen = np.histogram(tumble_durations_gen, bins=np.arange(1, 5), density=True)
+        h_tumb_dur_gen, bins_tumb_dur_gen = np.histogram(tumble_durations_gen, bins=np.arange(1, np.max(tumble_durations_gen)), density=True)
         bins_tumb_dur_gen = bins_tumb_dur_gen[:-1]
 
         h_mem1_dur_gen, bins_mem1_dur_gen = np.histogram(memory1_durations_gen, density=True)
