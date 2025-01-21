@@ -228,6 +228,25 @@ def extract_durations(trajectory):
 def filter_durations(durations, target_value):
     return np.array([duration for value, duration in durations if value == target_value])
 
+def segment_trajectories(trajectory, label = "actions"):
+    possible_actions = np.unique(trajectory[label])
+    idxs = {action: np.where(trajectory[label] == action)[0] for action in possible_actions}
+
+    # Segment the trajectory by action, so that each action corresponds to a list of arrays of indexes corresponding to that action
+    segmented_trajectory = {action: [] for action in possible_actions}
+
+    for action in possible_actions:
+        idxs_action = idxs[action]
+        current_segment = [idxs_action[0]]
+        for i in range(1, len(idxs_action)):
+            if idxs_action[i] == idxs_action[i - 1] + 1:
+                current_segment.append(idxs_action[i])
+            else:
+                segmented_trajectory[action].append(np.array(current_segment))
+                current_segment = [idxs_action[i]]
+        segmented_trajectory[action].append(np.array(current_segment))
+
+    return segmented_trajectory
 
 def get_cumulative(data):
     values, counts = np.unique(data, return_counts=True)

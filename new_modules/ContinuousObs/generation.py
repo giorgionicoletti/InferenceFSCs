@@ -66,7 +66,7 @@ class GenerationContinuousObs:
             features_cut = features[:, :NSteps]
 
         int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectory(GenerationContinuousObs._nb_get_TMat,
-                                                                                    NSteps, self.InternalActSpace, self.InternalMemActSpace,
+                                                                                    NSteps, self.InternalMemSpace, self.InternalMemActSpace,
                                                                                     self.FSC.theta, self.rho, features_cut)
         actions = np.array([self.FSC.ActSpace[act] for act in int_actions])
         memories = np.array([self.FSC.MemSpace[mem] for mem in int_memories])
@@ -156,11 +156,11 @@ class GenerationContinuousObs:
 
         if NSteps is not None:
             int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel(GenerationContinuousObs._nb_get_TMat,
-                                                                                                NTraj, NSteps, self.InternalActSpace, self.InternalMemActSpace,
+                                                                                                NTraj, NSteps, self.InternalMemSpace, self.InternalMemActSpace,
                                                                                                 self.FSC.theta, self.rho, features_cut)
         else:
             int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel_nosteps(GenerationContinuousObs._nb_get_TMat,
-                                                                                                           feat_lengths, self.InternalActSpace, self.InternalMemActSpace,
+                                                                                                           feat_lengths, self.InternalMemSpace, self.InternalMemActSpace,
                                                                                                            self.FSC.theta, self.rho, features_cut)
         trajectories = []
 
@@ -300,6 +300,14 @@ class GenerationContinuousObs:
             W[m] /= np.sum(W[m, :])
 
         return W
+    
+    @staticmethod
+    @nb.njit
+    def _nb_trajectory_step(get_TMat_nb, MSpace, MASpace, theta, m, f):
+        transition_probs = get_TMat_nb(theta, f)[m].flatten()
+        new_MA = utils.numba_random_choice(MASpace, transition_probs)
+
+        return new_MA[0], new_MA[1]
 
     @staticmethod
     @nb.njit
