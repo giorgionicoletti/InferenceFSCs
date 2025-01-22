@@ -35,10 +35,10 @@ F = 2
 M = 2
 A = 2
 
-NEpochs = 10
-NBatch = 25
-lr = (0.05, 0.05)
-gamma = 0.99
+NEpochs = 15
+NBatch = 10
+lr = (0.1, 0.1)
+gamma = 0.9
 train_split = 0.9
 
 for idx_run in range(NRuns):
