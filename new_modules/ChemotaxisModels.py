@@ -271,11 +271,12 @@ def cswitch_simulate_ecoli3D(NRep, NSteps1, NSteps2, dt, NBurn, seeds, c0_array,
                     yp += dt * (ka * a * (1 - yp) - kz * yp)
                     tr = ttumble * (yp0 / yp)**h
                     time += dt
-                    it += 1
 
                     # Switch concentration after NBurn + NSteps1 timesteps
                     if it == NBurn + NSteps1:
                         c = c1
+
+                    it += 1
 
             if it > NBurn and it <= total_steps:
                 idx = it - NBurn - 1
