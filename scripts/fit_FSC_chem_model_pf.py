@@ -56,7 +56,7 @@ for idx_run in range(NRuns):
     c_data = [res["concentrations"][::tau_sub] for res in results_model_pf]
     cmean = np.concatenate(c_data).mean()
 
-    c_data = [x/x[-1] for x in c_data]
+    c_data = [x/100 for x in c_data]
 
     trajectories_data = []
     actions = []
