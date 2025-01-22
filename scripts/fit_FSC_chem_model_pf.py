@@ -26,7 +26,8 @@ c0_pf_array = np.ones((NRuns, NTraj)) * 10
 
 np.random.seed(42)
 # c1_pf_array = np.random.uniform(0.5, 2, NRuns)
-c1_pf_array = np.random.uniform(0.1, 50, (NRuns, NTraj))
+#c1_pf_array = np.random.uniform(1.5, 50, (NRuns, NTraj))
+c1_pf_array = np.ones((NRuns, NTraj)) * 10
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)
