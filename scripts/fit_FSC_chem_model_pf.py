@@ -21,10 +21,11 @@ tau_sub = 20
 ttumble = 0.1
 
 NRuns = 5
-c0_pf_array = np.linspace(10, 200, NRuns)
+c0_pf_array = np.ones(NRuns) * 100
 
-np.random.seed(42)
-c1_pf_array = np.random.uniform(0.5, 2, NRuns)
+# np.random.seed(42)
+# c1_pf_array = np.random.uniform(0.5, 2, NRuns)
+c1_pf_array = np.array([1.5, 2, 0.5, 1.25, 0.75])
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)
@@ -73,7 +74,7 @@ for idx_run in range(NRuns):
     print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories_data) * 100, 2), "%")
 
     # save the data
-    np.savez(f"../data/model/trajectories_model_pf_{idx_run}_c0{c0_pf}_c1{c1_pf}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}.npz",
+    np.savez(f"../data/model/trajectories_model_pf_{idx_run}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}.npz",
              trajectories_data = trajectories_data, c0_pf = c0_pf, c1_pf = c1_pf, ttumble = ttumble, dt = dt,
              NSteps1 = NSteps1, NSteps2 = NSteps2, NBurn = NBurn, tau_sub = tau_sub)
 
@@ -84,7 +85,7 @@ for idx_run in range(NRuns):
         tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs,
                                     NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
-        par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_pf_run{idx_run}_c0{c0_pf}_c1{c1_pf}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"
+        par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_pf_run{idx_run}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"
         par_names += f"seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories_data)}_"
 
         parameters = FSC_tofit.get_learned_parameters()
