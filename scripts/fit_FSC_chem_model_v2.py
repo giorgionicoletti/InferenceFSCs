@@ -10,51 +10,40 @@ import FSC as controller
 import time as measure_time
 
 NTraj = 250
-
-NSteps1 = 500
-NSteps2 = 1500
-NBurn = 1000
-
-dt = 1e-2
-
-tau_sub = 20
+NSteps = 10000
+tau_sub = 100
+grad = 0.5
 ttumble = 0.1
 
-NRuns = 5
-c0_pf_array = np.linspace(10, 200, NRuns)
+NRuns = 1
 
-np.random.seed(42)
-c1_pf_array = np.random.uniform(0.5, 2, NRuns)
+long_flag = True
 
-N_FSC = 20
-seeds_FSC = np.arange(0, N_FSC)
+N_FSC = 100
+seed0 = 0
+seeds = np.arange(seed0, seed0 + N_FSC)
 F = 2
 M = 2
 A = 2
 
-NEpochs = 10
+NEpochs = 15
 NBatch = 25
 lr = (0.05, 0.05)
 gamma = 0.99
-train_split = 0.9
+train_split = 0.8
 
-for idx_run in range(NRuns):
+for idx_run in range(0, NRuns + 1):
     print(f"Run {idx_run}")
-    c0_pf = c0_pf_array[idx_run]
-    c1_pf = c1_pf_array[idx_run] * c0_pf
-    #results_model = chem.gradx_ecoli3D(NRep = NTraj, NSteps = NSteps, grad = grad, ttumble = ttumble)
+    results_model = chem.gradx_ecoli3D(NRep = NTraj, NSteps = NSteps, grad = grad, ttumble = ttumble)
 
-    results_model_pf = chem.cswitch_ecoli3D(NRep = NTraj, NSteps1 = NSteps1, NSteps2 = NSteps2,
-                                            c0 = c0_pf, c1 = c1_pf, ttumble = ttumble, NBurn = NBurn, dt = dt)
-
-    c_data = [res["concentrations"][::tau_sub] for res in results_model_pf]
+    c_data = [res["concentrations"][::tau_sub] for res in results_model]
     cmean = np.concatenate(c_data).mean()
 
-    c_data = [x/c0_pf for x in c_data]
+    c_data = [x/cmean for x in c_data]
 
     trajectories_data = []
     actions = []
-    for i, curr_res in enumerate(results_model_pf):
+    for i, curr_res in enumerate(results_model):
 
         actions.append(curr_res["actions"].astype(int)[::tau_sub])
         ccurr = c_data[i]
@@ -73,19 +62,24 @@ for idx_run in range(NRuns):
     print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories_data) * 100, 2), "%")
 
     # save the data
-    np.savez(f"../data/model/trajectories_model_pf_{idx_run}_c0{c0_pf}_c1{c1_pf}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}.npz",
-             trajectories_data = trajectories_data, c0_pf = c0_pf, c1_pf = c1_pf, ttumble = ttumble, dt = dt,
-             NSteps1 = NSteps1, NSteps2 = NSteps2, NBurn = NBurn, tau_sub = tau_sub)
+    if long_flag:
+        np.savez(f"../data/model/trajectories_model_{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}_long.npz", trajectories_data = trajectories_data)
+    else:
+        np.savez(f"../data/model/trajectories_model_{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}.npz", trajectories_data = trajectories_data)
 
-    for seed in seeds_FSC:
+    
+
+    for seed in seeds:
         tic = measure_time.time()
         FSC_tofit = controller.FSC("continuous", M = M, A = A, F = F, seed = seed)
 
         tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs,
                                     NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
-        par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_pf_run{idx_run}_c0{c0_pf}_c1{c1_pf}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"
+        par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_run{idx_run}_grad{grad}_ttumble{ttumble}_tau_sub{tau_sub}_"
         par_names += f"seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories_data)}_"
+        if long_flag:
+            par_names += "long_"
 
         parameters = FSC_tofit.get_learned_parameters()
 
