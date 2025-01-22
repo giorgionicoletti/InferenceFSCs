@@ -12,7 +12,7 @@ import time as measure_time
 NTraj = 250
 
 NSteps1 = 500
-NSteps2 = 1500
+NSteps2 = 2500
 NBurn = 1000
 
 dt = 1e-2
@@ -52,7 +52,7 @@ for idx_run in range(NRuns):
     c_data = [res["concentrations"][::tau_sub] for res in results_model_pf]
     cmean = np.concatenate(c_data).mean()
 
-    c_data = [x/c0_pf for x in c_data]
+    c_data = [x/x[-1] for x in c_data]
 
     trajectories_data = []
     actions = []
