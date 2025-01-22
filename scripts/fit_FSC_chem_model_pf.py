@@ -22,12 +22,15 @@ ttumble = 0.1
 
 NRuns = 5
 
-c0_pf_array = np.ones((NRuns, NTraj)) * 10
+c0_pf_array = np.ones((NRuns, NTraj)) * 10 
+
+c0_pf_array[:, :NTraj//4] = 100
 
 np.random.seed(42)
 # c1_pf_array = np.random.uniform(0.5, 2, NRuns)
 #c1_pf_array = np.random.uniform(1.5, 50, (NRuns, NTraj))
 c1_pf_array = np.ones((NRuns, NTraj)) * 10
+c1_pf_array[:, :NTraj//2] = 1
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)
@@ -35,10 +38,10 @@ F = 2
 M = 2
 A = 2
 
-NEpochs = 15
+NEpochs = 20
 NBatch = 10
-lr = (0.1, 0.1)
-gamma = 0.9
+lr = (0.05, 0.05)
+gamma = 0.99
 train_split = 0.9
 
 for idx_run in range(NRuns):
