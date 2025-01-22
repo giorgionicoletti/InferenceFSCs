@@ -9,10 +9,10 @@ import FSC as controller
 
 import time as measure_time
 
-NTraj = 300
+NTraj = 500
 
 NSteps1 = 1000
-NSteps2 = 100
+NSteps2 = 2500
 NBurn = 1000
 
 dt = 1e-2
@@ -22,16 +22,19 @@ ttumble = 0.1
 
 NRuns = 5
 
-c0_pf_array = np.ones((NRuns, NTraj)) * 10 
+c0_pf_array = np.ones((NRuns, NTraj))
 
-c0_pf_array[:, NTraj//2:] = 100
+c0_pf_array[:, :100] = 10
+c0_pf_array[:, 100:200] = 100
+c0_pf_array[:, 200:500] = 10
 
-
-np.random.seed(42)
+#np.random.seed(42)
 # c1_pf_array = np.random.uniform(0.5, 2, NRuns)
 #c1_pf_array = np.random.uniform(1.5, 50, (NRuns, NTraj))
 c1_pf_array = np.ones((NRuns, NTraj)) #* 10
-#c1_pf_array[:, :NTraj//2] = 1
+c1_pf_array[:, :100] = 10
+c1_pf_array[:, 100:200] = 100
+c1_pf_array[:, 200:500] = 100
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)
@@ -48,7 +51,7 @@ train_split = 0.9
 for idx_run in range(NRuns):
     print(f"Run {idx_run}")
     c0_pf = c0_pf_array[idx_run]
-    c1_pf = c1_pf_array[idx_run] * c0_pf
+    c1_pf = c1_pf_array[idx_run]
     #results_model = chem.gradx_ecoli3D(NRep = NTraj, NSteps = NSteps, grad = grad, ttumble = ttumble)
 
     results_model_pf = chem.cswitch_ecoli3D(NRep = NTraj, NSteps1 = NSteps1, NSteps2 = NSteps2,
