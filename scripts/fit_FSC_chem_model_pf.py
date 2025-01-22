@@ -21,11 +21,12 @@ tau_sub = 20
 ttumble = 0.1
 
 NRuns = 5
-c0_pf_array = np.ones(NRuns) * 100
 
-# np.random.seed(42)
+c0_pf_array = np.ones((NRuns, NTraj)) * 10
+
+np.random.seed(42)
 # c1_pf_array = np.random.uniform(0.5, 2, NRuns)
-c1_pf_array = np.array([1.5, 2, 0.5, 1.25, 0.75])
+c1_pf_array = np.random.uniform(0.1, 50, (NRuns, NTraj))
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)

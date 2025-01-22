@@ -181,11 +181,23 @@ def gradx_simulate_ecoli3D(NRep, NSteps, dt, NBurn, seeds, c0, grad, ttumble, a0
 
     return pos_xyz, actions, concentrations, methylation, activity, chey
 
-def cswitch_ecoli3D(NRep, NSteps1, NSteps2, dt=1e-3, NBurn=10000, seeds=None, c0=400.0, c1=40.0, ttumble=0.1):
+def cswitch_ecoli3D(NRep, NSteps1, NSteps2, dt=1e-3, NBurn=10000, seeds=None, c0=400.0, c1=500.0, ttumble=0.1):
     if seeds is None:
         seeds = np.random.randint(0, 1000000, size=NRep)
     elif len(seeds) != NRep:
         raise ValueError("The length of seeds must be equal to NRep")
+    
+    if not isinstance(c0, np.ndarray):
+        c0 = np.ones(NRep) * c0
+    else:
+        if c0.size != NRep:
+            raise ValueError("The length of c0 must be equal to NRep")
+        
+    if not isinstance(c1, np.ndarray):
+        c1 = np.ones(NRep) * c1
+    else:
+        if c1.size != NRep:
+            raise ValueError("The length of c1 must be equal to NRep")
     
     values = cswitch_simulate_ecoli3D(NRep, NSteps1, NSteps2, dt, NBurn, seeds, c0, c1, ttumble)
     keys = ["pos_xyz", "actions", "concentrations", "methylation", "activity", "chey"]
@@ -199,7 +211,7 @@ def cswitch_ecoli3D(NRep, NSteps1, NSteps2, dt=1e-3, NBurn=10000, seeds=None, c0
     return results
 
 @njit(parallel=True)
-def cswitch_simulate_ecoli3D(NRep, NSteps1, NSteps2, dt, NBurn, seeds, c0, c1, ttumble, a0 = 1/3):
+def cswitch_simulate_ecoli3D(NRep, NSteps1, NSteps2, dt, NBurn, seeds, c0_array, c1_array, ttumble, a0 = 1/3):
     NSteps = NSteps1 + NSteps2
     total_steps = NBurn + NSteps
     pos_xyz = np.zeros((NRep, 3, NSteps))
@@ -210,6 +222,9 @@ def cswitch_simulate_ecoli3D(NRep, NSteps1, NSteps2, dt, NBurn, seeds, c0, c1, t
     chey = np.zeros((NRep, NSteps))
 
     for idx_rep in prange(NRep):
+        c0 = c0_array[idx_rep]
+        c1 = c1_array[idx_rep]
+
         np.random.seed(seeds[idx_rep])
         a = a0
         c = c0
