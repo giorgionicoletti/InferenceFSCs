@@ -9,10 +9,10 @@ import FSC as controller
 
 import time as measure_time
 
-NTraj = 100
+NTraj = 300
 
 NSteps1 = 1000
-NSteps2 = 2000
+NSteps2 = 100
 NBurn = 1000
 
 dt = 1e-2
@@ -24,13 +24,14 @@ NRuns = 5
 
 c0_pf_array = np.ones((NRuns, NTraj)) * 10 
 
-c0_pf_array[:, :NTraj//4] = 100
+c0_pf_array[:, NTraj//2:] = 100
+
 
 np.random.seed(42)
 # c1_pf_array = np.random.uniform(0.5, 2, NRuns)
 #c1_pf_array = np.random.uniform(1.5, 50, (NRuns, NTraj))
-c1_pf_array = np.ones((NRuns, NTraj)) * 10
-c1_pf_array[:, :NTraj//2] = 1
+c1_pf_array = np.ones((NRuns, NTraj)) #* 10
+#c1_pf_array[:, :NTraj//2] = 1
 
 N_FSC = 20
 seeds_FSC = np.arange(0, N_FSC)
@@ -38,7 +39,7 @@ F = 2
 M = 2
 A = 2
 
-NEpochs = 20
+NEpochs = 10
 NBatch = 10
 lr = (0.05, 0.05)
 gamma = 0.99
