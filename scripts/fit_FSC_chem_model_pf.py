@@ -44,7 +44,7 @@ A = 2
 
 NEpochs = 10
 NBatch = 10
-lr = (0.05, 0.05)
+lr = (0.01, 0.01)
 gamma = 0.99
 train_split = 0.9
 
