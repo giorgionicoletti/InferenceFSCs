@@ -9,15 +9,15 @@ import FSC as controller
 
 import time as measure_time
 
-NTraj = 250
+NTraj = 100
 
-NSteps1 = 500
-NSteps2 = 2500
+NSteps1 = 1000
+NSteps2 = 2000
 NBurn = 1000
 
 dt = 1e-2
 
-tau_sub = 20
+tau_sub = 10
 ttumble = 0.1
 
 NRuns = 5
