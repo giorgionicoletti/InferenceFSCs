@@ -10,7 +10,7 @@ import FSC as controller
 import time as measure_time
 import os
 
-NTraj = 280
+NTraj = 360
 NSteps = 8000
 NBurn = 10000
 
@@ -22,7 +22,7 @@ dt = 1e-3
 tau_sub = 100
 ttumble = 0.1
 
-NLevels = 3
+NLevels = 4
 cmin = 10
 cmax = 400
 cvalues = np.linspace(cmin, cmax, NLevels)
