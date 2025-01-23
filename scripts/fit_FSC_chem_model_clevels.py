@@ -57,7 +57,7 @@ print("Number of tumbling at the beginning: ", np.sum(first_action))
 print("Fraction of tumbling at the beginning: ", np.round(np.sum(first_action) / len(trajectories_data) * 100, 2), "%")
 
 # save the data
-np.savez(f"../data/model/trajectories_model_clevels_cmin{cmin}_cmax{cmax}_NLevels{NLevels}_Ntraj{NTraj}_NSteps{NSteps}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}.npz",
+np.savez(f"../data/model/clevels/trajectories_model_clevels_cmin{cmin}_cmax{cmax}_NLevels{NLevels}_Ntraj{NTraj}_NSteps{NSteps}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}.npz",
          trajectories_data = trajectories_data, c_array = c_array, ttumble = ttumble, dt = dt,
          NSteps1 = NSteps1, NSteps2 = NSteps2, NBurn = NBurn, tau_sub = tau_sub)
 
@@ -80,7 +80,7 @@ for seed in seeds_FSC:
     tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs,
                                 NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
-    par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_clevels_cmin{cmin}_cmax{cmax}_NLevels{NLevels}_Ntraj{NTraj}_NSteps{NSteps}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"
+    par_names = f"../data/parameters/clevels/FSC_M{M}_A{A}_F{F}_model_clevels_cmin{cmin}_cmax{cmax}_NLevels{NLevels}_Ntraj{NTraj}_NSteps{NSteps}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"
     par_names += f"seed_{seed}_NEpochs{NEpochs}_lr{lr[0]}_{lr[1]}_gamma{gamma}_train_split{train_split}_"
 
     parameters = FSC_tofit.get_learned_parameters()
