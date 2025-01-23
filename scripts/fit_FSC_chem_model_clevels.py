@@ -22,7 +22,7 @@ dt = 1e-3
 tau_sub = 100
 ttumble = 0.1
 
-NLevels = 2
+NLevels = 3
 cmin = 10
 cmax = 400
 cvalues = np.linspace(cmin, cmax, NLevels)
