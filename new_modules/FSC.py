@@ -410,12 +410,11 @@ class FSC:
         if h_tumble_dur is None or bins_tumble_dur is None:
             tumble_durations = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 1)[1:-1] for tr in trajectories])
 
-            h_tumble_dur, bins_tumble_dur = np.histogram(tumble_durations, bins=np.arange(1, 5), density=True)
+            h_tumble_dur, bins_tumble_dur = np.histogram(tumble_durations, bins=np.arange(1, np.max(tumble_durations) + 1), density=True)
             bins_tumble_dur = bins_tumble_dur[:-1]
 
         if nLL is None:            
             nLL = self.compute_loss(trajectories)
-
 
         generated_tr = self.generate_trajectories(features = [tr["features"] for tr in trajectories])
         run_durations_gen = np.concatenate([utils.filter_durations(utils.extract_durations(tr["actions"]), 0)[1:-1] for tr in generated_tr])
