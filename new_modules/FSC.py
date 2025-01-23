@@ -171,7 +171,7 @@ class FSC:
         
         self._fitted_features_numpy = []
         for features, _ in self.inferencer.FeatAct_trajectories:
-            self._fitted_features_numpy.append(features.detach().cpu().numpy())
+            self._fitted_features_numpy.append(features.detach().cpu().numpy().astype(np.float64))
 
     def set_mode(self, mode):
         self.mode = mode
@@ -184,10 +184,16 @@ class FSC:
                     self.generator.load_observations(self._fitted_observations_numpy)
             else:
                 self.convert_features_to_numpy()
+                # convert parameters to float64, if they are not already
+                if self.theta is not None and self.psi is not None:
+                    self.theta = self.theta.astype(np.float64)
+                    self.psi = self.psi.astype(np.float64)
 
                 self.generator = GenerationContinuousObs(self)
                 if hasattr(self, '_fitted_features_numpy'):
                     self.generator.load_features(self._fitted_features_numpy)
+
+                
         elif mode == 'inference':
             if self.__obs_type == 'discrete':
                 self.inferencer = InferenceDiscreteObs(self)
@@ -398,6 +404,10 @@ class FSC:
                             action_r_color='lightblue', action_t_color='salmon'):
         if len(feature_array) != 2:
             raise ValueError("Dashboard only plots the topology of the FSC for 2 features.")
+
+        if self.mode != 'generation':
+            self.set_mode('generation')
+            warnings.warn("Mode was set to 'generation' to plot the FSC.")
         
         
         if run_exponent == None:
