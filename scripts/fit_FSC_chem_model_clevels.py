@@ -10,7 +10,7 @@ import FSC as controller
 import time as measure_time
 import os
 
-NTraj = 200
+NTraj = 280
 NSteps = 8000
 NBurn = 10000
 
