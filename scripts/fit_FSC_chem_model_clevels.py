@@ -68,7 +68,7 @@ np.savez(dir_name + f"/trajectories_model_clevels_cmin{cmin}_cmax{cmax}_NLevels{
          NSteps1 = NSteps1, NSteps2 = NSteps2, NBurn = NBurn, tau_sub = tau_sub)
 
 N_FSC = 20
-seeds_FSC = np.arange(0, N_FSC)
+seeds_FSC = np.arange(12, N_FSC)
 F = 2
 M = 2
 A = 2
