@@ -177,13 +177,17 @@ class FSC:
         self.mode = mode
         if mode == 'generation':
             if self.__obs_type == 'discrete':
-                self.convert_observations_to_numpy()
+                # check if observations have been loaded
+                if hasattr(self, '_fitted_observations_numpy'):
+                    self.convert_observations_to_numpy()
 
                 self.generator = GenerationDiscreteObs(self)
                 if hasattr(self, '_fitted_observations_numpy'):
                     self.generator.load_observations(self._fitted_observations_numpy)
             else:
-                self.convert_features_to_numpy()
+                #check if features have been loaded
+                if hasattr(self, '_fitted_features_numpy'):
+                    self.convert_features_to_numpy()
                 # convert parameters to float64, if they are not already
                 if self.theta is not None and self.psi is not None:
                     self.theta = self.theta.astype(np.float64)
