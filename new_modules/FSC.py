@@ -527,3 +527,52 @@ class FSC:
                        "memory1_occupacy": memory1_occupacy, "memory2_occupacy": memory2_occupacy,
                        "nLL": nLL}
             return results
+
+
+    def compute_eq_probability(self, feature_array):
+        TMat_all = self.get_TMat(feature_array)
+        
+        if isinstance(TMat_all, np.ndarray):
+            backend = np
+        elif isinstance(TMat_all, torch.Tensor):
+            backend = torch
+        else:
+            raise TypeError("TMat_all must be either a numpy array or a torch tensor")
+
+        pActEq = backend.zeros((feature_array.shape[1], self.A)) # this is the probability of action a given feature
+        pMemEq = backend.zeros((feature_array.shape[1], self.M)) # this is the probability of memory m given feature
+
+        for idx_y, y in enumerate(feature_array[1]):
+            TMat = TMat_all[idx_y]
+            qprob = backend.sum(TMat, axis=-1)
+            
+            eigvals, eigvecs = backend.linalg.eig(qprob.T)
+            pMemEq[idx_y] = eigvecs[:, backend.isclose(eigvals, 1)].flatten()
+            pMemEq[idx_y] /= backend.sum(pMemEq[idx_y])
+
+            policy = backend.sum(TMat, axis=1)
+
+            pActEq[idx_y] = backend.matmul(policy.T, pMemEq[idx_y])
+
+        return pActEq, pMemEq
+
+        
+
+        # pReq = np.zeros(feature_array.shape[1])
+        # pM1 = np.zeros(feature_array.shape[1])
+        # pi1_list = np.zeros(feature_array.shape[1])
+        # pi2_list = np.zeros(feature_array.shape[1])
+
+        for idx_c, c in enumerate(feature_array[1]):
+            TMat = TMat_all[idx_c]
+            q1 = TMat.sum(axis = -1)[0, 1]
+            q2 = TMat.sum(axis = -1)[1, 0]
+            pM1[idx_c] = q2/(q1 + q2)
+
+            pi1 = TMat[0, :, 0].sum()
+            pi2 = TMat[1, :, 0].sum()
+            pi1_list[idx_c] = pi1
+            pi2_list[idx_c] = pi2
+
+            pReq[idx_c] = pi1*pM1[idx_c] + pi2*(1 - pM1[idx_c])
+        return pReq, pM1, 1 - pM1, pi1_list, pi2_list
