@@ -115,7 +115,7 @@ class InferenceContinuousObs:
         return nLL - torch.log(torch.sum(m))
 
 
-    def optimize(self, NEpochs, NBatch, lr_theta, lr_psi, train_split=0.8, optimizer=None, gamma=0.9, verbose=False):
+    def optimize(self, NEpochs, NBatch, lr_theta, lr_psi, train_split=0.8, optimizer=None, scheduler = None, gamma=0.9, verbose=False):
         """
         Method to optimize the parameters of the FSC using the loaded trajectories. The optimization is performed
         using the Adam optimizer with a learning rate schedule. The trajectories are split into a training and a
@@ -164,7 +164,13 @@ class InferenceContinuousObs:
                 self.optimizer = torch.optim.Adam([self.theta, self.psi], lr=lr)
                 single_lr = True
 
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
+        if scheduler == "exp":
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
+        elif scheduler == "cyclic":
+            scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr, max_lr=lr * 10,
+                                                          step_size_up=NEpochs // 10, mode='triangular2')
+        elif scheduler is not None:
+            raise ValueError("Invalid scheduler. Choose between 'exp' and 'cyclic'.")
 
         NTrain = int(train_split * len(self.FeatAct_trajectories))
         NVal = len(self.FeatAct_trajectories) - NTrain
@@ -556,26 +562,24 @@ class InferenceContinuousObs:
                         loss = loss + loss_traj
                         count += 1
 
-                
-                penalty = torch.tensor(0.0, requires_grad=True, device=self.device)
+                        penalty = torch.tensor(0.0, requires_grad=True, device=self.device)
 
-                for idx_f, f in enumerate(unique_features.T):
-                    TMat = self.get_TMat(f)
-                    qprob = torch.sum(TMat, axis=-1)
-                    q1 = qprob[0, 1]
-                    q2 = qprob[1, 0]
-                    pM1 = q2 / (q1 + q2)
-                    pM2 = 1 - pM1
+                        for idx_f, f in enumerate(unique_features.T):
+                            TMat = self.get_TMat(f)
+                            qprob = torch.sum(TMat, axis=-1)
+                            q1 = qprob[0, 1]
+                            q2 = qprob[1, 0]
+                            pM1 = q2 / (q1 + q2)
+                            pM2 = 1 - pM1
 
-                    pM = torch.tensor([pM1, pM2], device=self.device, requires_grad=True)
-                    policy = torch.sum(TMat, axis=1)
-                    pActEq = torch.matmul(policy.T, pM)
+                            pM = torch.tensor([pM1, pM2], device=self.device, requires_grad=True)
+                            policy = torch.sum(TMat, axis=1)
+                            pActEq = torch.matmul(policy.T, pM)
 
-                    penalty = penalty + torch.mean(torch.sqrt((pActEq - pActEq_target[idx_f]) ** 2))
-                
-                penalty = penalty / unique_features.size(1)
-                print(penalty)
-                loss = loss + count * alpha * penalty
+                            penalty = penalty + torch.mean(torch.sqrt((pActEq - pActEq_target[idx_f]) ** 2))
+                        
+                        penalty = penalty / unique_features.size(1)
+                        loss = loss + alpha * penalty
 
                 loss.backward()
                 self.optimizer.step()

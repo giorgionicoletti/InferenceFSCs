@@ -255,7 +255,7 @@ class FSC:
 
         return losses_train, losses_val
     
-    def optimize_parameters_continuous(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
+    def optimize_parameters_continuous(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, scheduler = None, gamma=0.9, verbose=False,
                                        overwrite=True, use_penalty=False, pActEq_target=None, alpha=1.0):
         if self.mode != 'inference':
             raise ValueError("Mode must be 'inference' to optimize parameters.")
@@ -273,7 +273,7 @@ class FSC:
             pActEq_target = torch.tensor(pActEq_target, dtype=torch.float32)
             losses_train, losses_val = self.inferencer.optimize_with_penalty(NEpochs, NBatch, lr_theta, lr_psi, pActEq_target, alpha, train_split, optimizer, gamma, verbose)
         else:
-            losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, gamma, verbose)
+            losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, scheduler, gamma, verbose)
 
         if overwrite:
             self.theta = self.inferencer.theta.detach().cpu().numpy()
@@ -301,7 +301,7 @@ class FSC:
         self.set_mode('inference')
         self.__loaded_trajectories_inference = False
 
-    def fit(self, trajectories, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
+    def fit(self, trajectories, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, scheduler = None, gamma=0.9, verbose=False,
             maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True, use_penalty=False, pActEq_target=None, alpha=1.0):
         self.initialize_for_inference()
         
@@ -312,9 +312,11 @@ class FSC:
         if self.__obs_type == 'discrete':
             if use_penalty:
                 raise ValueError("Penalty is not yet supported for discrete observations.")
+            if scheduler is not None:
+                raise ValueError("Scheduler is not yet supported for discrete observations.")
             return self.optimize_parameters_discrete(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, maxiter, rho0, th, c_gauge, overwrite)
         else:
-            return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, overwrite, use_penalty, pActEq_target, alpha)
+            return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, scheduler, gamma, verbose, overwrite, use_penalty, pActEq_target, alpha)
 
 
     def __check_ready_for_inference(self):
