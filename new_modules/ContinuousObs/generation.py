@@ -392,3 +392,25 @@ class GenerationContinuousObs:
     
             return nLL - np.log(np.sum(m))
     
+
+    def compute_eq_probability(self, feature_array):
+        TMat_all = self.get_TMat(feature_array)
+
+        pActEq = np.zeros((feature_array.shape[1], self.FSC.A)) # this is the probability of action a given feature
+        pMemEq = np.zeros((feature_array.shape[1], self.FSC.M)) # this is the probability of memory m given feature
+        policy = np.zeros((feature_array.shape[1],self.FSC.M, self.FSC.A))
+
+        for idx_y, y in enumerate(feature_array[1]):
+            TMat = TMat_all[idx_y]
+            qprob = np.sum(TMat, axis=-1)
+            
+            eigvals, eigvecs = np.linalg.eig(qprob.T)
+            pMemEq[idx_y] = eigvecs[:, np.isclose(eigvals, 1)].flatten()
+            pMemEq[idx_y] /= np.sum(pMemEq[idx_y])
+
+            policy[idx_y] = np.sum(TMat, axis=1)
+
+            pActEq[idx_y] = np.matmul(policy[idx_y].T, pMemEq[idx_y])
+
+        return pActEq, pMemEq, policy
+    

@@ -256,7 +256,7 @@ class FSC:
         return losses_train, losses_val
     
     def optimize_parameters_continuous(self, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
-                                       overwrite=True):
+                                       overwrite=True, use_penalty=False, pActEq_target=None, alpha=1.0):
         if self.mode != 'inference':
             raise ValueError("Mode must be 'inference' to optimize parameters.")
         if not self.__loaded_trajectories_inference:
@@ -268,14 +268,19 @@ class FSC:
         else:
             lr_theta = lr
             lr_psi = lr
-        
-        losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, gamma, verbose)
+
+        if use_penalty:
+            pActEq_target = torch.tensor(pActEq_target, dtype=torch.float32)
+            losses_train, losses_val = self.inferencer.optimize_with_penalty(NEpochs, NBatch, lr_theta, lr_psi, pActEq_target, alpha, train_split, optimizer, gamma, verbose)
+        else:
+            losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, gamma, verbose)
 
         if overwrite:
             self.theta = self.inferencer.theta.detach().cpu().numpy()
             self.psi = self.inferencer.psi.detach().cpu().numpy()
 
         return losses_train, losses_val
+        
 
     def evaluate_nloglikelihood_for_trajectory(self, trajectory_idx):
         if self.mode != 'inference':
@@ -297,7 +302,7 @@ class FSC:
         self.__loaded_trajectories_inference = False
 
     def fit(self, trajectories, NEpochs, NBatch, lr, train_split=0.8, optimizer=None, gamma=0.9, verbose=False,
-            maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True):
+            maxiter=1000, rho0=None, th=1e-6, c_gauge=0, overwrite=True, use_penalty=False, pActEq_target=None, alpha=1.0):
         self.initialize_for_inference()
         
         self.load_trajectories_tofit(trajectories)
@@ -305,9 +310,11 @@ class FSC:
         self.__check_ready_for_inference()
         
         if self.__obs_type == 'discrete':
+            if use_penalty:
+                raise ValueError("Penalty is not yet supported for discrete observations.")
             return self.optimize_parameters_discrete(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, maxiter, rho0, th, c_gauge, overwrite)
         else:
-            return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, overwrite)
+            return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, overwrite, use_penalty, pActEq_target, alpha)
 
 
     def __check_ready_for_inference(self):
@@ -530,49 +537,11 @@ class FSC:
 
 
     def compute_eq_probability(self, feature_array):
-        TMat_all = self.get_TMat(feature_array)
+        if self.__obs_type == 'discrete':
+            raise ValueError("Equilibrium probability is not defined for discrete observations.")
         
-        if isinstance(TMat_all, np.ndarray):
-            backend = np
-        elif isinstance(TMat_all, torch.Tensor):
-            backend = torch
-        else:
-            raise TypeError("TMat_all must be either a numpy array or a torch tensor")
-
-        pActEq = backend.zeros((feature_array.shape[1], self.A)) # this is the probability of action a given feature
-        pMemEq = backend.zeros((feature_array.shape[1], self.M)) # this is the probability of memory m given feature
-
-        for idx_y, y in enumerate(feature_array[1]):
-            TMat = TMat_all[idx_y]
-            qprob = backend.sum(TMat, axis=-1)
-            
-            eigvals, eigvecs = backend.linalg.eig(qprob.T)
-            pMemEq[idx_y] = eigvecs[:, backend.isclose(eigvals, 1)].flatten()
-            pMemEq[idx_y] /= backend.sum(pMemEq[idx_y])
-
-            policy = backend.sum(TMat, axis=1)
-
-            pActEq[idx_y] = backend.matmul(policy.T, pMemEq[idx_y])
-
-        return pActEq, pMemEq
-
-        
-
-        # pReq = np.zeros(feature_array.shape[1])
-        # pM1 = np.zeros(feature_array.shape[1])
-        # pi1_list = np.zeros(feature_array.shape[1])
-        # pi2_list = np.zeros(feature_array.shape[1])
-
-        for idx_c, c in enumerate(feature_array[1]):
-            TMat = TMat_all[idx_c]
-            q1 = TMat.sum(axis = -1)[0, 1]
-            q2 = TMat.sum(axis = -1)[1, 0]
-            pM1[idx_c] = q2/(q1 + q2)
-
-            pi1 = TMat[0, :, 0].sum()
-            pi2 = TMat[1, :, 0].sum()
-            pi1_list[idx_c] = pi1
-            pi2_list[idx_c] = pi2
-
-            pReq[idx_c] = pi1*pM1[idx_c] + pi2*(1 - pM1[idx_c])
-        return pReq, pM1, 1 - pM1, pi1_list, pi2_list
+        elif self.__obs_type == 'continuous':
+            if self.mode == 'generation':
+                return self.generator.compute_eq_probability(feature_array)
+            elif self.mode == 'inference':
+                return self.inferencer.compute_eq_probability(feature_array)

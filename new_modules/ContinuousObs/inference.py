@@ -96,12 +96,12 @@ class InferenceContinuousObs:
             Negative log-likelihood of the trajectory.
         """
         nLL = torch.tensor(0.0, requires_grad=grad_required)
+        TMat_all = self.get_TMat(features)
 
         for t in range(features.size(1)):
             idx_a = actions[t]
-            TMat = self.get_TMat(features[:, t])
-
-            transition_probs = TMat[:, :, idx_a].T
+ 
+            transition_probs = TMat_all[t, :, :, idx_a].T
 
             if t == 0:
                 m = torch.matmul(transition_probs, self.rho)
@@ -113,6 +113,7 @@ class InferenceContinuousObs:
             m /= mv
 
         return nLL - torch.log(torch.sum(m))
+
 
     def optimize(self, NEpochs, NBatch, lr_theta, lr_psi, train_split=0.8, optimizer=None, gamma=0.9, verbose=False):
         """
@@ -393,6 +394,215 @@ class InferenceContinuousObs:
 
             scheduler_theta.step()
             
+
+        self.trained = True
+
+        return losses_train, losses_val
+    
+
+    def compute_eq_probability_torch(self, feature_array):
+        TMat_all = self.get_TMat(feature_array)
+        
+        pActEq = torch.zeros((feature_array.shape[1], self.FSC.A)) # this is the probability of action a given feature
+        pMemEq = torch.zeros((feature_array.shape[1], self.FSC.M)) # this is the probability of memory m given feature
+        policy = torch.zeros((feature_array.shape[1], self.FSC.M, self.FSC.A)) # this is the policy
+        for idx_y, y in enumerate(feature_array[1]):
+            TMat = TMat_all[idx_y]
+            qprob = torch.sum(TMat, axis=-1)
+            
+            if self.FSC.M == 2:
+                q1 = qprob[0, 1]
+                q2 = qprob[1, 0]
+                pMemEq[idx_y, 0] = q2 / (q1 + q2)
+                pMemEq[idx_y, 1] = 1 - pMemEq[idx_y, 0]
+            else:
+                eigvals, eigvecs = torch.linalg.eig(qprob.T)
+                pMemEq[idx_y] = eigvecs[:, torch.isclose(eigvals, torch.tensor(1.0))].flatten()
+                pMemEq[idx_y] /= torch.sum(pMemEq[idx_y])
+
+            policy[idx_y] = torch.sum(TMat, axis=1)
+
+            pActEq[idx_y] = torch.matmul(policy[idx_y].T, pMemEq[idx_y])
+
+        return pActEq, pMemEq, policy
+
+    def loss_with_penalty(self, features, actions, pActEq_target, alpha=1.0, grad_required=True):
+        """
+        Method to compute the negative log-likelihood of a given trajectory with an additional penalty term.
+        The penalty term is the MSE between the action probabilities pActEq and some fixed values given by the user.
+        
+        Parameters:
+        --- features: torch.tensor
+            Array of features.
+        --- actions: torch.tensor
+            Array of actions.
+        --- pActEq_target: torch.tensor
+            Target action probabilities.
+        --- alpha: float (default = 1.0)
+            Weight of the penalty term.
+        --- grad_required: bool (default = True)
+            Flag indicating whether the gradient is required or not.
+
+        Returns:
+        --- nLL: float
+            Negative log-likelihood of the trajectory with the penalty term.
+        """
+        nLL = torch.tensor(0.0, requires_grad=grad_required)
+
+        TMat_all = self.get_TMat(features)
+
+        for t in range(features.size(1)):
+            idx_a = actions[t]
+ 
+            transition_probs = TMat_all[t, :, :, idx_a].T
+
+            if t == 0:
+                m = torch.matmul(transition_probs, self.rho)
+            else:
+                m = torch.matmul(transition_probs, m)
+
+            mv = torch.sum(m)
+            nLL -= torch.log(mv)
+            m /= mv
+
+        return nLL - torch.log(torch.sum(m))
+
+    def optimize_with_penalty(self, NEpochs, NBatch, lr_theta, lr_psi, pActEq_target, alpha=1.0, train_split=0.8, optimizer=None, gamma=0.9, verbose=False):
+        """
+        Method to optimize the parameters of the FSC using the loaded trajectories with an additional penalty term.
+        The penalty term is the MSE between the action probabilities pActEq and some fixed values given by the user.
+
+        Parameters:
+        --- NEpochs: int
+            Number of epochs for the optimization.
+        --- NBatch: int
+            Number of trajectories per batch.
+        --- lr_theta: float
+            Initial learning rate for the optimizer for theta.
+        --- lr_psi: float
+            Initial learning rate for the optimizer for psi.
+        --- pActEq_target: torch.tensor
+            Target action probabilities.
+        --- alpha: float (default = 1.0)
+            Weight of the penalty term.
+        --- train_split: float (default = 0.8)
+            Fraction of trajectories to use for training.
+        --- optimizer: torch.optim (default = None)
+            Optimizer to use for the optimization. If None, the Adam optimizer is used.
+        --- gamma: float (default = 0.9)
+            Decay factor for the learning rate schedule.
+
+        Returns:
+        --- losses_train: list
+            List of training losses at each epoch.
+        --- losses_val: list
+            List of validation losses at each epoch.
+        """
+        assert self.trajectories_loaded, "No trajectories have been loaded. Load trajectories with the load_trajectories method."
+        assert not self.trained, "The model has already been trained. If you want to train it again, reinitialize it or set the flag self.trained to False."
+
+        if optimizer is not None:
+            if lr_theta != lr_psi:
+                self.optimizer = optimizer([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+                single_lr = False
+            else:
+                lr = lr_theta
+                self.optimizer = optimizer([self.theta, self.psi], lr=lr)
+                single_lr = True
+        else:
+            if lr_theta != lr_psi:
+                self.optimizer = torch.optim.Adam([{'params': self.theta, 'lr': lr_theta}, {'params': self.psi, 'lr': lr_psi}])
+                single_lr = False
+            else:
+                lr = lr_theta
+                self.optimizer = torch.optim.Adam([self.theta, self.psi], lr=lr)
+                single_lr = True
+
+        pActEq_target = torch.tensor(pActEq_target, device=self.device, requires_grad=False)
+
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
+
+        NTrain = int(train_split * len(self.FeatAct_trajectories))
+        NVal = len(self.FeatAct_trajectories) - NTrain
+
+        trjs_train = self.FeatAct_trajectories[:NTrain]
+        trjs_val = self.FeatAct_trajectories[NTrain:]
+
+        losses_train = []
+        losses_val = []
+
+        if single_lr:
+            print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories. Using a single learning rate of {lr}.")
+        else:
+            print(f"Training with {NTrain} trajectories and validating with {NVal} trajectories. Using learning rates {lr_theta} for theta and {lr_psi} for psi.")
+        
+        unique_features = trjs_train[0][0][:, [0, -1]]
+
+        for epoch in range(NEpochs):
+            running_loss = 0.0
+            random.shuffle(trjs_train)
+
+            for idx in range(0, NTrain, NBatch):
+                self.optimizer.zero_grad()
+                loss = torch.tensor(0.0, requires_grad=True)
+
+                self.rho = nn.Softmax(dim=0)(self.psi)
+
+                count = 0
+
+                for idx_traj in range(idx, idx + NBatch):
+                    if idx_traj < NTrain:
+                        loss_traj = self.loss(trjs_train[idx_traj][0], trjs_train[idx_traj][1])
+                        loss = loss + loss_traj
+                        count += 1
+
+                
+                penalty = torch.tensor(0.0, requires_grad=True, device=self.device)
+
+                for idx_f, f in enumerate(unique_features.T):
+                    TMat = self.get_TMat(f)
+                    qprob = torch.sum(TMat, axis=-1)
+                    q1 = qprob[0, 1]
+                    q2 = qprob[1, 0]
+                    pM1 = q2 / (q1 + q2)
+                    pM2 = 1 - pM1
+
+                    pM = torch.tensor([pM1, pM2], device=self.device, requires_grad=True)
+                    policy = torch.sum(TMat, axis=1)
+                    pActEq = torch.matmul(policy.T, pM)
+
+                    penalty = penalty + torch.mean(torch.sqrt((pActEq - pActEq_target[idx_f]) ** 2))
+                
+                penalty = penalty / unique_features.size(1)
+                print(penalty)
+                loss = loss + count * alpha * penalty
+
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item() / count
+
+                if verbose:
+                    print(f"\t Epoch {epoch + 1} - Batch {idx // NBatch + 1} - Loss: {loss.item() / count} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+
+            running_loss = running_loss / (NTrain // NBatch)
+            losses_train.append(running_loss)
+
+            running_loss_val = 0.0
+
+            for idx_traj in range(NVal):
+                loss_val = torch.tensor(0.0, requires_grad=False)
+
+                loss_traj_val = self.loss(trjs_val[idx_traj][0], trjs_val[idx_traj][1], grad_required=False)
+                loss_val = loss_val + loss_traj_val
+
+                running_loss_val += loss_val.item()
+
+            running_loss_val = running_loss_val / NVal
+            losses_val.append(running_loss_val)
+
+            print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
+
+            scheduler.step()
 
         self.trained = True
 
