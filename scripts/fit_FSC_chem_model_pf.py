@@ -91,7 +91,7 @@ for idx_run in range(NRuns):
         tic = measure_time.time()
         FSC_tofit = controller.FSC("continuous", M = M, A = A, F = F, seed = seed)
 
-        tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs,
+        tloss, vloss = FSC_tofit.fit(trajectories_data, NEpochs = NEpochs, scheduler = "exp",
                                     NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
         par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_model_pf_run{idx_run}_ttumble{ttumble}_dt{dt}_tau_sub{tau_sub}_"

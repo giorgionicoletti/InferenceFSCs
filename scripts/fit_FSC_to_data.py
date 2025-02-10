@@ -81,7 +81,7 @@ for seed in seeds:
     tic = measure_time.time()
     FSC_tofit = controller.FSC("continuous", M = M, A = A, F = F, seed = seed)
 
-    tloss, vloss = FSC_tofit.fit(trajectories, NEpochs = NEpochs,
+    tloss, vloss = FSC_tofit.fit(trajectories, NEpochs = NEpochs, scheduler = "exp",
                                  NBatch = NBatch, lr = lr, gamma = gamma, train_split = train_split)
 
     par_names = f"../data/parameters/FSC_M{M}_A{A}_F{F}_seed_{seed}_NEpochs{NEpochs}_NTrajs{len(trajectories)}_NTrajInit{NTrajInit}_"
