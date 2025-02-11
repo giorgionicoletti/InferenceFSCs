@@ -230,7 +230,8 @@ class InferenceContinuousObs:
 
             print(f"Epoch {epoch + 1} - Training loss: {running_loss}, Validation loss: {running_loss_val} - Learning rate: {self.optimizer.param_groups[0]['lr']}")
 
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
 
         self.trained = True
 

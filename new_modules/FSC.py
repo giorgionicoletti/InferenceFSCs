@@ -313,7 +313,7 @@ class FSC:
             if use_penalty:
                 raise ValueError("Penalty is not yet supported for discrete observations.")
             if scheduler is not None:
-                raise ValueError("Scheduler is not yet supported for discrete observations.")
+                raise ValueError("Learning rate scheduler is not yet supported for discrete observations.")
             return self.optimize_parameters_discrete(NEpochs, NBatch, lr, train_split, optimizer, gamma, verbose, maxiter, rho0, th, c_gauge, overwrite)
         else:
             return self.optimize_parameters_continuous(NEpochs, NBatch, lr, train_split, optimizer, scheduler, gamma, verbose, overwrite, use_penalty, pActEq_target, alpha)
