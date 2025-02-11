@@ -262,3 +262,121 @@ def get_inverse_cumulative(data):
 
 def expcum_fit(x, a):
     return 1 - np.exp(-a * x)
+
+def plot_FSC_network_3(ax, piprob, pitilde_prob,
+                       memory1_color='gray', memory2_color='gray', memory3_color='gray',
+                       action_r_color='lightblue', action_t_color='salmon',
+                       title=""):
+    # Create a directed graph
+    G = nx.DiGraph()
+    
+    # Add memory nodes
+    G.add_node('$M_1$', shape='o', color=memory1_color)
+    G.add_node('$M_2$', shape='o', color=memory2_color)
+    G.add_node('$M_3$', shape='o', color=memory3_color)
+    
+    # Add action nodes
+    G.add_node('R1', shape='s', color=action_r_color)
+    G.add_node('T1', shape='s', color=action_t_color)
+    G.add_node('R2', shape='s', color=action_r_color)
+    G.add_node('T2', shape='s', color=action_t_color)
+    G.add_node('R3', shape='s', color=action_r_color)
+    G.add_node('T3', shape='s', color=action_t_color)
+    
+    # Add edges from memory nodes to action nodes
+    G.add_edges_from([('$M_1$', 'R1'), ('$M_1$', 'T1'),
+                      ('$M_2$', 'R2'), ('$M_2$', 'T2'),
+                      ('$M_3$', 'R3'), ('$M_3$', 'T3')])
+    
+    # Add edges from action nodes to memory nodes
+    G.add_edges_from([('R1', '$M_1$'), ('R1', '$M_2$'), ('R1', '$M_3$'),
+                      ('T1', '$M_1$'), ('T1', '$M_2$'), ('T1', '$M_3$'),
+                      ('R2', '$M_1$'), ('R2', '$M_2$'), ('R2', '$M_3$'),
+                      ('T2', '$M_1$'), ('T2', '$M_2$'), ('T2', '$M_3$'),
+                      ('R3', '$M_1$'), ('R3', '$M_2$'), ('R3', '$M_3$'),
+                      ('T3', '$M_1$'), ('T3', '$M_2$'), ('T3', '$M_3$')])
+    
+    # Define node shapes
+    node_shapes = {'o': 'o', 's': 's'}
+    
+    # Define custom labels for plotting
+    labels = {'$M_1$': '$M_1$', '$M_2$': '$M_2$', '$M_3$': '$M_3$', 
+              'R1': 'R', 'T1': 'T', 'R2': 'R', 'T2': 'T', 'R3': 'R', 'T3': 'T'}
+    
+    # Define positions for the nodes
+    pos = {
+        '$M_1$': (0, 0),
+        'R1': (0, 1),
+        'T1': (0, -1),
+        '$M_2$': (2, 0),
+        'R2': (2, 1),
+        'T2': (2, -1),
+        '$M_3$': (4, 0),
+        'R3': (4, 1),
+        'T3': (4, -1)
+    }
+
+    ax.axis('off')
+    
+    # Draw the graph
+    for shape in node_shapes:
+        nodes = [n for n in G.nodes if G.nodes[n]['shape'] == shape]
+        colors = [G.nodes[n]['color'] for n in nodes]
+        node_size = 2000 if shape == 'o' else 400  # Larger size for memory nodes, smaller for action nodes
+        nx.draw_networkx_nodes(G, pos, nodelist=nodes, node_shape=node_shapes[shape],
+                               node_size=node_size, node_color=colors, ax=ax)
+    
+    # Draw edges with arrows and curved connections
+    memory_to_action_edges = [
+        [('$M_1$', 'R1', piprob[0, 0]), ('$M_1$', 'T1', piprob[0, 1])],
+        [('$M_2$', 'R2', piprob[1, 0]), ('$M_2$', 'T2', piprob[1, 1])],
+        [('$M_3$', 'R3', piprob[2, 0]), ('$M_3$', 'T3', piprob[2, 1])]
+    ]
+
+    action_to_memory_edges = [
+        [('R1', '$M_1$', pitilde_prob[0, 0, 0]), ('R1', '$M_2$', pitilde_prob[0, 1, 0]), ('R1', '$M_3$', pitilde_prob[0, 2, 0])],
+        [('T1', '$M_1$', pitilde_prob[0, 0, 1]), ('T1', '$M_2$', pitilde_prob[0, 1, 1]), ('T1', '$M_3$', pitilde_prob[0, 2, 1])],
+        [('R2', '$M_1$', pitilde_prob[1, 0, 0]), ('R2', '$M_2$', pitilde_prob[1, 1, 0]), ('R2', '$M_3$', pitilde_prob[1, 2, 0])],
+        [('T2', '$M_1$', pitilde_prob[1, 0, 1]), ('T2', '$M_2$', pitilde_prob[1, 1, 1]), ('T2', '$M_3$', pitilde_prob[1, 2, 1])],
+        [('R3', '$M_1$', pitilde_prob[2, 0, 0]), ('R3', '$M_2$', pitilde_prob[2, 1, 0]), ('R3', '$M_3$', pitilde_prob[2, 2, 0])],
+        [('T3', '$M_1$', pitilde_prob[2, 0, 1]), ('T3', '$M_2$', pitilde_prob[2, 1, 1]), ('T3', '$M_3$', pitilde_prob[2, 2, 1])]
+    ]
+    
+    # Draw edges with different colors and connection styles
+    pscale = 5
+    rads_memory_to_action = [0.5, 0.5, 0.5]
+    rads_action_to_memory = [-0.2, 0.2, -0.2]
+
+    for i in range(len(memory_to_action_edges)):
+        for j, (u, v, prob) in enumerate(memory_to_action_edges[i]):
+            width = prob * pscale
+
+            nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], connectionstyle=f'arc3,rad={rads_memory_to_action[i]}', width=width,
+                                arrows=True, arrowsize=20, min_source_margin=25, min_target_margin=15, edge_color='gray', ax=ax)
+            
+            x = (pos[u][0] + pos[v][0]) / 2
+            y = (pos[u][1] + pos[v][1]) / 2
+            ax.text(x, y, f'{prob:.3f}', fontsize=10, color='gray')
+
+    colors = {'R1': 'lightblue', 'T1': 'salmon', 'R2': 'lightblue', 'T2': 'salmon', 'R3': 'lightblue', 'T3': 'salmon'}
+
+    for i in range(len(action_to_memory_edges)):
+        for j, (u, v, prob) in enumerate(action_to_memory_edges[i]):
+            width = prob * pscale
+
+            nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], connectionstyle=f'arc3,rad={rads_action_to_memory[i % 3]}', width=width,
+                                   arrows=True, arrowsize=20, min_source_margin=15, min_target_margin=25, edge_color=colors[u], ax=ax)
+            
+            x = (pos[u][0] + pos[v][0]) / 2
+            y = (pos[u][1] + pos[v][1]) / 2
+            ax.text(x, y, f'{prob:.3f}', fontsize=10, color=colors[u])
+    
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, labels=labels, font_size=12, font_color='white', ax=ax)
+    
+    # Add title
+    ax.set_title(title)
+
+    cut = 1.2
+    xmax= cut*max(xx for xx,yy in pos.values())
+    ax.set_xlim(-0.5,xmax)
