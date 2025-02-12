@@ -16,7 +16,7 @@ from scipy.optimize import curve_fit
 class FSC:
     def __init__(self, obs_type, M, A, Y = None, F = None,
                  mode = 'inference',
-                 theta = None, psi = None, seed = None,
+                 phi = None, zeta = None, psi = None, seed = None,
                  ObsSpace = None, ActSpace = None, MemSpace = None,
                  verbose = False):
         
@@ -24,19 +24,26 @@ class FSC:
         self.__check_obs_consistency(Y, F)
         self.__initialize_structure(M, A, Y, F)
 
-        self.__check_parameters_consistency(theta, psi)
+        self.__check_parameters_consistency(phi, zeta, psi)
 
-        if theta is not None and psi is not None:
-            self.theta = theta
+        if phi is not None and zeta is not None and psi is not None:
+            self.phi = phi
+            self.zeta = zeta
             self.psi = psi
-        elif theta is None and psi is not None:
+        elif phi is None and zeta is not None and psi is not None:
+            self.zeta = zeta
             self.psi = psi
-            self.__initialize_parameters(seed, which='theta')
-        elif theta is not None and psi is None:
-            self.theta = theta
+            self.__initialize_parameters(seed, which='phi')
+        elif phi is not None and zeta is None and psi is not None:
+            self.phi = phi
+            self.psi = psi
+            self.__initialize_parameters(seed, which='zeta')
+        elif phi is not None and zeta is not None and psi is None:
+            self.phi = phi
+            self.zeta = zeta
             self.__initialize_parameters(seed, which='psi')
         else:
-            self.__initialize_parameters(seed, which='both')
+            self.__initialize_parameters(seed, which='all')
 
         self.__initialize_spaces(ObsSpace, ActSpace, MemSpace)
 
@@ -90,17 +97,23 @@ class FSC:
         elif self.__obs_type == 'continuous':
             self.F = F
 
-    def __initialize_parameters(self, seed, which = 'both'):
+    def __initialize_parameters(self, seed, which = 'all'):
         if seed is not None:
             np.random.seed(seed)
 
-        if which == 'both' or which == 'theta':
+        if which == 'all' or which == 'phi':
             if self.__obs_type == 'discrete':
-                self.theta = np.random.randn(self.Y, self.M, self.M, self.A)
+                self.phi = np.random.randn(self.Y, self.M, self.M, self.A)
             elif self.__obs_type == 'continuous':
-                self.theta = np.random.randn(self.F, self.M, self.M, self.A)
+                self.phi = np.random.randn(self.F, self.M, self.M, self.A)
 
-        if which == 'both' or which == 'psi':
+        if which == 'all' or which == 'zeta':
+            if self.__obs_type == 'discrete':
+                self.zeta = np.random.randn(self.Y, self.M, self.M)
+            elif self.__obs_type == 'continuous':
+                self.zeta = np.random.randn(self.F, self.M, self.M)
+
+        if which == 'all' or which == 'psi':
             self.psi = np.random.randn(self.M)
 
     def __check_obs_consistency(self, Y, F):
@@ -117,13 +130,17 @@ class FSC:
         if Y is None and F is None:
             raise ValueError("Either the number of possible observations Y or the number of features F must be provided.")
 
-    def __check_parameters_consistency(self, theta, psi):
+    def __check_parameters_consistency(self, phi, zeta, psi):
         if self.__obs_type == 'discrete':
-            if theta is not None and theta.shape != (self.Y, self.M, self.M, self.A):
-                raise ValueError("theta must have shape (Y, M, M, A) where Y is the number of possible observations, M is the number of states, M is the number of actions, and A is the number of actions.")
+            if phi is not None and phi.shape != (self.Y, self.M, self.M, self.A):
+                raise ValueError("phi must have shape (Y, M, M, A) where Y is the number of possible observations, M is the number of states, M is the number of actions, and A is the number of actions.")
+            if zeta is not None and zeta.shape != (self.Y, self.M, self.A):
+                raise ValueError("zeta must have shape (Y, M, M) where Y is the number of possible observations, M is the number of states, and M is the number of actions.")
         elif self.__obs_type == 'continuous':
-            if theta is not None and theta.shape != (self.F, self.M, self.M, self.A):
-                raise ValueError("theta must have shape (F, M, M, A) where F is the number of features, M is the number of states, M is the number of actions, and A is the number of actions.")
+            if phi is not None and phi.shape != (self.F, self.M, self.M, self.A):
+                raise ValueError("phi must have shape (F, M, M, A) where F is the number of features, M is the number of states, M is the number of actions, and A is the number of actions.")
+            if zeta is not None and zeta.shape != (self.F, self.M, self.A):
+                raise ValueError("zeta must have shape (F, M, M) where F is the number of features, M is the number of states, and M is the number of actions.")
         if psi is not None and psi.shape != (self.M,):
             raise ValueError("psi must have shape (M,) where M is the number of states.")
         
@@ -189,8 +206,9 @@ class FSC:
                 if hasattr(self, '_fitted_features_numpy'):
                     self.convert_features_to_numpy()
                 # convert parameters to float64, if they are not already
-                if self.theta is not None and self.psi is not None:
-                    self.theta = self.theta.astype(np.float64)
+                if self.phi is not None and self.zeta is not None and self.psi is not None:
+                    self.phi = self.phi.astype(np.float64)
+                    self.zeta = self.zeta.astype(np.float64)
                     self.psi = self.psi.astype(np.float64)
 
                 self.generator = GenerationContinuousObs(self)
@@ -250,7 +268,8 @@ class FSC:
                                                             maxiter, rho0, th, c_gauge)
 
         if overwrite:
-            self.theta = self.inferencer.theta.detach().cpu().numpy()
+            self.phi = self.inferencer.phi.detach().cpu().numpy()
+            self.zeta = self.inferencer.zeta.detach().cpu().numpy()
             self.psi = self.inferencer.psi.detach().cpu().numpy()
 
         return losses_train, losses_val
@@ -264,19 +283,21 @@ class FSC:
         
         # check if lr is a number or a tuple
         if isinstance(lr, tuple):
-            lr_theta, lr_psi = lr
+            lr_phi, lr_zeta, lr_psi = lr
         else:
-            lr_theta = lr
+            lr_phi = lr
+            lr_zeta = lr
             lr_psi = lr
 
         if use_penalty:
             pActEq_target = torch.tensor(pActEq_target, dtype=torch.float32)
-            losses_train, losses_val = self.inferencer.optimize_with_penalty(NEpochs, NBatch, lr_theta, lr_psi, pActEq_target, alpha, train_split, optimizer, gamma, verbose)
+            losses_train, losses_val = self.inferencer.optimize_with_penalty(NEpochs, NBatch, lr_phi, lr_zeta, lr_psi, pActEq_target, alpha, train_split, optimizer, gamma, verbose)
         else:
-            losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_theta, lr_psi, train_split, optimizer, scheduler, gamma, verbose)
+            losses_train, losses_val = self.inferencer.optimize(NEpochs, NBatch, lr_phi, lr_zeta, lr_psi, train_split, optimizer, scheduler, gamma, verbose)
 
         if overwrite:
-            self.theta = self.inferencer.theta.detach().cpu().numpy()
+            self.phi = self.inferencer.phi.detach().cpu().numpy()
+            self.zeta = self.inferencer.zeta.detach().cpu().numpy()
             self.psi = self.inferencer.psi.detach().cpu().numpy()
 
         return losses_train, losses_val
@@ -293,7 +314,8 @@ class FSC:
         if self.mode != 'inference':
             raise ValueError("Mode must be 'inference' to retrieve learned parameters.")
         return {
-            "theta": self.inferencer.theta.detach().cpu().numpy(),
+            "phi": self.inferencer.phi.detach().cpu().numpy(),
+            "zeta": self.inferencer.zeta.detach().cpu().numpy(),
             "psi": self.inferencer.psi.detach().cpu().numpy()
         }
 
@@ -357,22 +379,27 @@ class FSC:
         elif self.__obs_type == 'discrete':
             return self.generator.generate_trajectories(NSteps, observations, idx_observation, NTraj, verbose)
 
-    def load_parameters(self, theta, psi):
+    def load_parameters(self, phi, zeta, psi):
 
-        self.__check_parameters_consistency(theta, psi)
+        self.__check_parameters_consistency(phi, zeta, psi)
 
         if self.mode == 'inference':
-            if isinstance(theta, np.ndarray):
-                theta = torch.tensor(theta, dtype=torch.float32)
+            if isinstance(phi, np.ndarray):
+                phi = torch.tensor(phi, dtype=torch.float32)
+            if isinstance(zeta, np.ndarray):
+                zeta = torch.tensor(zeta, dtype=torch.float32)
             if isinstance(psi, np.ndarray):
                 psi = torch.tensor(psi, dtype=torch.float32)
         elif self.mode == 'generation':
-            if isinstance(theta, torch.Tensor):
-                theta = theta.detach().cpu().numpy().astype(np.float64)
+            if isinstance(phi, torch.Tensor):
+                phi = phi.detach().cpu().numpy().astype(np.float64)
+            if isinstance(zeta, torch.Tensor):
+                zeta = zeta.detach().cpu().numpy().astype(np.float64)
             if isinstance(psi, torch.Tensor):
                 psi = psi.detach().cpu().numpy().astype(np.float64)
 
-        self.theta = theta
+        self.phi = phi
+        self.zeta = zeta
         self.psi = psi
 
 

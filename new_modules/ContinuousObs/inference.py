@@ -18,7 +18,7 @@ class InferenceContinuousObs:
             self.device = torch.device("mps")
         else:
             self.device = torch.device("cpu")
-
+        
         phi = torch.tensor(self.FSC.phi.astype(np.float32), device=self.device)
         self.phi = nn.Parameter(phi)
 
@@ -39,22 +39,23 @@ class InferenceContinuousObs:
 
     def get_TMat(self, f):
         if len(f.shape) == 1:
-            pi = torch.einsum('fmna, f->mna', self.phi, f)
-            pi = torch.nn.functional.softmax(pi, dim=2)
-
-            g = torch.einsum('fmn, f->mn', self.zeta, f)
+            g = torch.einsum('fmna, f->mna', self.phi, f)
             g = torch.nn.functional.softmax(g, dim=1)
 
-            TM = pi * g[:, :, None]
+            pi = torch.einsum('fma, f->ma', self.zeta, f)
+            pi = torch.nn.functional.softmax(pi, dim=1)
+
+            TM = g * pi[:, None, :]
             
         else:
-            pi = torch.einsum('fmna, ft -> tmna', self.phi, f)
-            pi = torch.nn.functional.softmax(pi, dim=3)
-
-            g = torch.einsum('fmn, ft -> tmn', self.zeta, f)
+            g = torch.einsum('fmna, ft -> tmna', self.phi, f)
             g = torch.nn.functional.softmax(g, dim=2)
 
-            TM = pi * g[:, :, :, None]
+            pi = torch.einsum('fma, ft -> tma', self.zeta, f)
+            pi = torch.nn.functional.softmax(pi, dim=2)
+
+            TM = g * pi[:, :, None, :]
+
         return TM
 
     def load_trajectories(self, trajectories):

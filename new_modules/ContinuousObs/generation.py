@@ -67,7 +67,7 @@ class GenerationContinuousObs:
 
         int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectory(GenerationContinuousObs._nb_get_TMat,
                                                                                     NSteps, self.InternalMemSpace, self.InternalMemActSpace,
-                                                                                    self.FSC.theta, self.rho, features_cut)
+                                                                                    self.FSC.phi, self.FSC.zeta, self.rho, features_cut)
         actions = np.array([self.FSC.ActSpace[act] for act in int_actions])
         memories = np.array([self.FSC.MemSpace[mem] for mem in int_memories])
         
@@ -157,11 +157,11 @@ class GenerationContinuousObs:
         if NSteps is not None:
             int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel(GenerationContinuousObs._nb_get_TMat,
                                                                                                 NTraj, NSteps, self.InternalMemSpace, self.InternalMemActSpace,
-                                                                                                self.FSC.theta, self.rho, features_cut)
+                                                                                                self.FSC.phi, self.FSC.zeta, self.rho, features_cut)
         else:
             int_actions, int_memories = GenerationContinuousObs._nb_generate_trajectories_parallel_nosteps(GenerationContinuousObs._nb_get_TMat,
                                                                                                            feat_lengths, self.InternalMemSpace, self.InternalMemActSpace,
-                                                                                                           self.FSC.theta, self.rho, features_cut)
+                                                                                                           self.FSC.phi, self.FSC.zeta, self.rho, features_cut)
         trajectories = []
 
         for n in range(NTraj):
@@ -191,7 +191,7 @@ class GenerationContinuousObs:
         actions = self.__map_act_to_internal_space(actions)
 
         nLL = GenerationContinuousObs._nb_evaluate_nloglikelihood(GenerationContinuousObs._nb_get_TMat, features, actions,
-                                                                  self.FSC.theta, self.rho)
+                                                                  self.FSC.phi, self.FSC.zeta, self.rho)
 
         return nLL
     
@@ -270,48 +270,69 @@ class GenerationContinuousObs:
     
     def get_TMat(self, f):
         if len(f.shape) == 1:
-            W = np.einsum('fmna, f->mna', self.FSC.theta, f)
-            TA = utils.softmax(W, axis = (1, 2))
+            g = np.einsum('fmna, f->mna', self.FSC.phi, f)
+            g = utils.softmax(g, axis=1)
+
+            pi = np.einsum('fma, f->ma', self.FSC.zeta, f)
+            pi = utils.softmax(pi, axis=1)
+
+            TM = g * pi[:, None, :]
         else:
-            W = np.einsum('fmna, fz->zmna',self.FSC.theta, f)
-            TA = utils.softmax(W, axis = (2, 3))
+            g = np.einsum('fmna, ft -> tmna', self.FSC.phi, f)
+            g = utils.softmax(g, axis=2)
 
-        return TA
+            pi = np.einsum('fma, ft -> tma', self.FSC.zeta, f)
+            pi = utils.softmax(pi, axis=2)
+
+            TM = g * pi[:, :, None, :]
+
+        return TM
+
+    @staticmethod
+    @nb.njit
+    def _nb_get_TMat(phi, zeta, f):
+        M = phi.shape[1]
+        A = phi.shape[3]
+        F = phi.shape[0]
+
+        g = np.zeros((M, M, A))
+        pi = np.zeros((M, A))
+
+        for m in range(M):
+            for a in range(A):
+                for i in range(F):
+                    pi[m, a] += zeta[i, m, a] * f[i]
+                    for n in range(M): 
+                        g[m, n, a] += phi[i, m, n, a] * f[i]
+
+        max_pi = np.max(pi)
+        max_g = np.max(g)
+
+        pi = np.exp(pi - max_pi)
+        g = np.exp(g - max_g)
+
+        for m in range(M):
+            pi[m] /= np.sum(pi[m])
+
+        for m in range(M):
+            for a in range(A):
+                g[m, :, a] /= np.sum(g[m, :, a])
+
+        TM = g * pi[:, None, :]
+
+        return TM
     
     @staticmethod
     @nb.njit
-    def _nb_get_TMat(theta, f):
-        M = theta.shape[1]
-        A = theta.shape[3]
-        F = theta.shape[0]
-
-        W = np.zeros((M, M, A))
-
-        for m in range(M):
-            for n in range(M):
-                for a in range(A):
-                    for z in range(F):
-                        W[m, n, a] += theta[z, m, n, a] * f[z]
-
-        max_W = np.max(W)
-        W = np.exp(W - max_W)
-
-        for m in range(M):
-            W[m] /= np.sum(W[m, :])
-
-        return W
-    
-    @staticmethod
-    @nb.njit
-    def _nb_trajectory_step(get_TMat_nb, MSpace, MASpace, theta, m, f):
-        transition_probs = get_TMat_nb(theta, f)[m].flatten()
+    def _nb_trajectory_step(get_TMat_nb, MSpace, MASpace, phi, zeta, m, f):
+        transition_probs = get_TMat_nb(phi, zeta, f)[m].flatten()
         new_MA = utils.numba_random_choice(MASpace, transition_probs)
 
         return new_MA[0], new_MA[1]
 
     @staticmethod
     @nb.njit
-    def _nb_generate_trajectory(get_TMat_nb, NSteps, MSpace, MASpace, theta, rho, features):
+    def _nb_generate_trajectory(get_TMat_nb, NSteps, MSpace, MASpace, phi, zeta, rho, features):
         actions = np.zeros(NSteps, dtype = np.int32)
         memories = np.zeros(NSteps, dtype = np.int32)
 
@@ -320,7 +341,7 @@ class GenerationContinuousObs:
         memories[0] = initial_memory
 
         for t in range(0, NSteps):
-            transition_probs = get_TMat_nb(theta, features[:, t])[memories[t]].flatten()
+            transition_probs = get_TMat_nb(phi, zeta, features[:, t])[memories[t]].flatten()
             new_MA = utils.numba_random_choice(MASpace, transition_probs)
             if t < NSteps - 1:
                 memories[t + 1] = new_MA[0]
@@ -330,7 +351,7 @@ class GenerationContinuousObs:
     
     @staticmethod
     @nb.njit(parallel = True)
-    def _nb_generate_trajectories_parallel(get_TMat_nb, NTraj, NSteps, MSpace, MASpace, theta, rho, features):
+    def _nb_generate_trajectories_parallel(get_TMat_nb, NTraj, NSteps, MSpace, MASpace, phi, zeta, rho, features):
         actions = np.zeros((NTraj, NSteps), dtype = np.int32)
         memories = np.zeros((NTraj, NSteps), dtype = np.int32)
 
@@ -339,7 +360,7 @@ class GenerationContinuousObs:
     
             memories[n, 0] = initial_memory
             for t in range(0, NSteps):
-                transition_probs = get_TMat_nb(theta, features[n][:, t])[memories[n, t]].flatten()
+                transition_probs = get_TMat_nb(phi, zeta, features[n][:, t])[memories[n, t]].flatten()
                 new_MA = utils.numba_random_choice(MASpace, transition_probs)
                 if t < NSteps - 1:
                     memories[n, t+1] = new_MA[0]
@@ -349,7 +370,7 @@ class GenerationContinuousObs:
     
     @staticmethod
     @nb.njit(parallel = True)
-    def _nb_generate_trajectories_parallel_nosteps(get_TMat_nb, NSteps_list, MSpace, MASpace, theta, rho, features):
+    def _nb_generate_trajectories_parallel_nosteps(get_TMat_nb, NSteps_list, MSpace, MASpace, phi, zeta, rho, features):
         actions = [np.zeros(NSteps, dtype = np.int32) for NSteps in NSteps_list]
         memories = [np.zeros(NSteps, dtype = np.int32) for NSteps in NSteps_list]
 
@@ -360,7 +381,7 @@ class GenerationContinuousObs:
     
             memories[n][0] = initial_memory
             for t in range(0, NSteps_list[n]):
-                transition_probs = get_TMat_nb(theta, features[n][:, t])[memories[n][t]].flatten()
+                transition_probs = get_TMat_nb(phi, zeta, features[n][:, t])[memories[n][t]].flatten()
                 new_MA = utils.numba_random_choice(MASpace, transition_probs)
                 if t < NSteps_list[n] - 1:
                     memories[n][t+1] = new_MA[0]
@@ -372,14 +393,14 @@ class GenerationContinuousObs:
 
     @staticmethod
     @nb.njit
-    def _nb_evaluate_nloglikelihood(get_TMat_nb, features, actions, theta, rho):
+    def _nb_evaluate_nloglikelihood(get_TMat_nb, features, actions, phi, zeta, rho):
             nLL = 0.
     
             for t in range(actions.size):
                 a = actions[t]
                 f = features[:, t]
     
-                transition_probs = get_TMat_nb(theta, f)[:, :, a].T
+                transition_probs = get_TMat_nb(phi, zeta, f)[:, :, a].T
                     
                 if t == 0:
                     m = transition_probs @ rho
