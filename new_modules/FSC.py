@@ -538,12 +538,12 @@ class FSC:
             return results
 
 
-    def compute_eq_probability(self, feature_array):
+    def compute_eq_probability(self, feature_array, return_eigvals = False):
         if self.__obs_type == 'discrete':
             raise ValueError("Equilibrium probability is not defined for discrete observations.")
         
         elif self.__obs_type == 'continuous':
             if self.mode == 'generation':
-                return self.generator.compute_eq_probability(feature_array)
+                return self.generator.compute_eq_probability(feature_array, return_eigvals = return_eigvals)
             elif self.mode == 'inference':
                 return self.inferencer.compute_eq_probability(feature_array)

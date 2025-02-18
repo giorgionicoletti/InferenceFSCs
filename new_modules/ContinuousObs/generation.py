@@ -393,24 +393,39 @@ class GenerationContinuousObs:
             return nLL - np.log(np.sum(m))
     
 
-    def compute_eq_probability(self, feature_array):
+    def compute_eq_probability(self, feature_array, return_eigvals = False):
         TMat_all = self.get_TMat(feature_array)
 
         pActEq = np.zeros((feature_array.shape[1], self.FSC.A)) # this is the probability of action a given feature
         pMemEq = np.zeros((feature_array.shape[1], self.FSC.M)) # this is the probability of memory m given feature
         policy = np.zeros((feature_array.shape[1],self.FSC.M, self.FSC.A))
 
+        if return_eigvals:
+            Eig = np.zeros((feature_array.shape[1], self.FSC.M))
+
         for idx_y, y in enumerate(feature_array[1]):
             TMat = TMat_all[idx_y]
             qprob = np.sum(TMat, axis=-1)
             
             eigvals, eigvecs = np.linalg.eig(qprob.T)
-            pMemEq[idx_y] = eigvecs[:, np.isclose(eigvals, 1)].flatten()
+            tol = 1e-5
+            idx_eig = np.isclose(eigvals, 1, rtol=tol)
+            while np.sum(idx_eig) > 1:
+                tol *= 0.1
+                idx_eig = np.isclose(eigvals, 1, rtol=tol)
+
+            if return_eigvals:
+                Eig[idx_y] = eigvals
+
+            pMemEq[idx_y] = eigvecs[:, idx_eig].flatten()
             pMemEq[idx_y] /= np.sum(pMemEq[idx_y])
 
             policy[idx_y] = np.sum(TMat, axis=1)
 
             pActEq[idx_y] = np.matmul(policy[idx_y].T, pMemEq[idx_y])
 
-        return pActEq, pMemEq, policy
+        if return_eigvals:
+            return pActEq, pMemEq, policy, Eig
+        else:
+            return pActEq, pMemEq, policy
     
